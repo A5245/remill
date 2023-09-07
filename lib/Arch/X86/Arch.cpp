@@ -836,7 +836,8 @@ static bool IsAVX512(xed_isa_set_enum_t isa_set, xed_category_enum_t category) {
     case XED_ISA_SET_AVX512BW_128N:
     case XED_ISA_SET_AVX512BW_256:
     case XED_ISA_SET_AVX512BW_512:
-    case XED_ISA_SET_AVX512BW_KOP:
+    case XED_ISA_SET_AVX512BW_KOPD:
+    case XED_ISA_SET_AVX512BW_KOPQ:
     case XED_ISA_SET_AVX512CD_128:
     case XED_ISA_SET_AVX512CD_256:
     case XED_ISA_SET_AVX512CD_512:
@@ -844,7 +845,8 @@ static bool IsAVX512(xed_isa_set_enum_t isa_set, xed_category_enum_t category) {
     case XED_ISA_SET_AVX512DQ_128N:
     case XED_ISA_SET_AVX512DQ_256:
     case XED_ISA_SET_AVX512DQ_512:
-    case XED_ISA_SET_AVX512DQ_KOP:
+    case XED_ISA_SET_AVX512DQ_KOPB:
+    case XED_ISA_SET_AVX512DQ_KOPW:
     case XED_ISA_SET_AVX512DQ_SCALAR:
     case XED_ISA_SET_AVX512ER_512:
     case XED_ISA_SET_AVX512ER_SCALAR:
@@ -852,7 +854,7 @@ static bool IsAVX512(xed_isa_set_enum_t isa_set, xed_category_enum_t category) {
     case XED_ISA_SET_AVX512F_128N:
     case XED_ISA_SET_AVX512F_256:
     case XED_ISA_SET_AVX512F_512:
-    case XED_ISA_SET_AVX512F_KOP:
+    case XED_ISA_SET_AVX512F_KOPW:
     case XED_ISA_SET_AVX512F_SCALAR:
     case XED_ISA_SET_AVX512PF_512:
     case XED_ISA_SET_AVX512_4FMAPS_512:
