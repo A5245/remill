@@ -88,18 +88,15 @@ class TraceLifter {
 
   ~TraceLifter();
 
-  inline TraceLifter(Arch *arch_, TraceManager &manager_)
-      : TraceLifter(arch_, &manager_) {}
-
   TraceLifter(Arch *arch_, TraceManager *manager_);
 
   static void NullCallback(uint64_t, llvm::Function *);
 
   // Lift one or more traces starting from `addr`. Calls `callback` with each
   // lifted trace.
-  bool
-  Lift(uint64_t addr,
-       const std::function<void(uint64_t, llvm::Function *)>& callback = NullCallback);
+  bool Lift(uint64_t addr,
+            const std::function<void(uint64_t, llvm::Function *)> &callback =
+                NullCallback);
 
  private:
   class Impl;

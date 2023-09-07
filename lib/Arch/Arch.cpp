@@ -80,10 +80,10 @@ ArchBase::ArchBase(llvm::LLVMContext *context_, OSName os_name_,
                    ArchName arch_name_)
     : Arch(context_, os_name_, arch_name_) {}
 
-Arch::~Arch(void) {}
+Arch::~Arch() = default;
 
 // Returns `true` if memory access are little endian byte ordered.
-bool Arch::MemoryAccessIsLittleEndian(void) const {
+bool Arch::MemoryAccessIsLittleEndian() const {
   return true;
 }
 
@@ -118,7 +118,7 @@ ArchLocker Arch::Lock(ArchName arch_name_) {
   }
 }
 
-llvm::Triple Arch::BasicTriple(void) const {
+llvm::Triple Arch::BasicTriple() const {
   llvm::Triple triple;
   switch (os_name) {
     case kOSInvalid: LOG(FATAL) << "Cannot get triple OS."; break;
@@ -270,42 +270,42 @@ auto Arch::GetHostArch(llvm::LLVMContext &ctx) -> ArchPtr {
 }
 
 // Return the type of the state structure.
-llvm::StructType *ArchBase::StateStructType(void) const {
+llvm::StructType *ArchBase::StateStructType() const {
   CHECK_NOTNULL(state_type);
   return state_type;
 }
 
 // Pointer to a state structure type.
-llvm::PointerType *ArchBase::StatePointerType(void) const {
+llvm::PointerType *ArchBase::StatePointerType() const {
   CHECK(this->state_type)
       << "Have you not run `PrepareModule` on a loaded semantics module?";
   return llvm::PointerType::get(*context, 0);
 }
 
 // Return the type of an address, i.e. `addr_t` in the semantics.
-llvm::IntegerType *Arch::AddressType(void) const {
+llvm::IntegerType *Arch::AddressType() const {
   return llvm::IntegerType::get(*context, address_size);
 }
 
 // The type of memory.
-llvm::PointerType *ArchBase::MemoryPointerType(void) const {
+llvm::PointerType *ArchBase::MemoryPointerType() const {
   CHECK_NOTNULL(memory_type);
   return memory_type;
 }
 
 // Return the type of a lifted function.
-llvm::FunctionType *ArchBase::LiftedFunctionType(void) const {
+llvm::FunctionType *ArchBase::LiftedFunctionType() const {
   CHECK_NOTNULL(lifted_function_type);
   return lifted_function_type;
 }
 
-llvm::StructType *ArchBase::RegisterWindowType(void) const {
+llvm::StructType *ArchBase::RegisterWindowType() const {
   CHECK(this->register_window_type)
       << "Have you not run `PrepareModule` on a loaded semantics module?";
   return this->register_window_type;
 }
 
-unsigned ArchBase::RegMdID(void) const {
+unsigned ArchBase::RegMdID() const {
   return this->reg_md_id;
 }
 
@@ -380,7 +380,7 @@ remill::Arch::ArchPtr Arch::GetModuleArch(const llvm::Module &module) {
                              GetArchName(triple));
 }
 
-bool Arch::IsX86(void) const {
+bool Arch::IsX86() const {
   switch (arch_name) {
     case remill::kArchX86:
     case remill::kArchX86_AVX:
@@ -390,7 +390,7 @@ bool Arch::IsX86(void) const {
   }
 }
 
-bool Arch::IsAMD64(void) const {
+bool Arch::IsAMD64() const {
   switch (arch_name) {
     case remill::kArchAMD64:
     case remill::kArchAMD64_AVX:
@@ -400,39 +400,39 @@ bool Arch::IsAMD64(void) const {
   }
 }
 
-bool Arch::IsAArch32(void) const {
+bool Arch::IsAArch32() const {
   return remill::kArchAArch32LittleEndian == arch_name;
 }
 
-bool Arch::IsAArch64(void) const {
+bool Arch::IsAArch64() const {
   return remill::kArchAArch64LittleEndian == arch_name;
 }
 
-bool Arch::IsSPARC32(void) const {
+bool Arch::IsSPARC32() const {
   return remill::kArchSparc32 == arch_name;
 }
 
-bool Arch::IsSPARC64(void) const {
+bool Arch::IsSPARC64() const {
   return remill::kArchSparc64 == arch_name;
 }
 
-bool Arch::IsPPC(void) const {
+bool Arch::IsPPC() const {
   return remill::kArchPPC == arch_name;
 }
 
-bool Arch::IsWindows(void) const {
+bool Arch::IsWindows() const {
   return remill::kOSWindows == os_name;
 }
 
-bool Arch::IsLinux(void) const {
+bool Arch::IsLinux() const {
   return remill::kOSLinux == os_name;
 }
 
-bool Arch::IsMacOS(void) const {
+bool Arch::IsMacOS() const {
   return remill::kOSmacOS == os_name;
 }
 
-bool Arch::IsSolaris(void) const {
+bool Arch::IsSolaris() const {
   return remill::kOSSolaris == os_name;
 }
 
@@ -481,7 +481,7 @@ const Register *Register::EnclosingRegisterOfSize(uint64_t size_) const {
 }
 
 // Returns the largest enclosing register containing the current register.
-const Register *Register::EnclosingRegister(void) const {
+const Register *Register::EnclosingRegister() const {
   auto enclosing = this;
   while (enclosing->parent) {
     enclosing = enclosing->parent;
@@ -492,7 +492,7 @@ const Register *Register::EnclosingRegister(void) const {
 // Returns the list of directly enclosed registers. For example,
 // `RAX` will directly enclose `EAX` but nothing else. `AX` will directly
 // enclose `AH` and `AL`.
-const std::vector<const Register *> &Register::EnclosedRegisters(void) const {
+const std::vector<const Register *> &Register::EnclosedRegisters() const {
   return children;
 }
 
@@ -874,7 +874,7 @@ void ArchBase::InitFromSemanticsModule(llvm::Module *module) const {
   this->instrinsics.reset(new IntrinsicTable(module));
 }
 
-const IntrinsicTable *ArchBase::GetInstrinsicTable(void) const {
+const IntrinsicTable *ArchBase::GetInstrinsicTable() const {
   return this->instrinsics.get();
 }
 
@@ -883,7 +883,7 @@ void ArchBase::UpdateContext(DecodingContext &context) {}
 void ArchBase::SetContext(Instruction &instruction) {}
 
 
-DecodingContext DefaultContextAndLifter::CreateInitialContext(void) const {
+DecodingContext DefaultContextAndLifter::CreateInitialContext() const {
   return DecodingContext();
 }
 
@@ -979,5 +979,36 @@ DefaultContextAndLifter::DefaultContextAndLifter(llvm::LLVMContext *context_,
                                                  ArchName arch_name_)
     : ArchBase(context_, os_name_, arch_name_) {}
 
+Arch::MemoryTraceManager::MemoryTraceManager(remill::Arch::Memory &memory)
+    : memory(memory) {}
+
+void Arch::MemoryTraceManager::SetLiftedTraceDefinition(
+    uint64_t addr, llvm::Function *lifted_func) {
+  traces[addr] = lifted_func;
+}
+
+llvm::Function *
+Arch::MemoryTraceManager::GetLiftedTraceDeclaration(uint64_t addr) {
+  auto trace_it = traces.find(addr);
+  if (trace_it != traces.end()) {
+    return trace_it->second;
+  } else {
+    return nullptr;
+  }
+}
+llvm::Function *
+Arch::MemoryTraceManager::GetLiftedTraceDefinition(uint64_t addr) {
+  return GetLiftedTraceDeclaration(addr);
+}
+bool Arch::MemoryTraceManager::TryReadExecutableByte(uint64_t addr,
+                                                     uint8_t *byte) {
+  auto byte_it = memory.find(addr);
+  if (byte_it != memory.end()) {
+    *byte = byte_it->second;
+    return true;
+  } else {
+    return false;
+  }
+}
 
 }  // namespace remill

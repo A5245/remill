@@ -31,6 +31,7 @@
 #include <remill/BC/InstructionLifter.h>
 #include <remill/BC/IntrinsicTable.h>
 #include <remill/Arch/Context.h>
+#include <remill/BC/TraceLifter.h>
 
 #pragma clang diagnostic pop
 
@@ -169,6 +170,9 @@ struct Register {
 class Arch {
  public:
   using ArchPtr = std::unique_ptr<Arch>;
+  using Memory = std::map<uint64_t, uint8_t>;
+
+  Arch() = delete;
 
   virtual ~Arch();
 
@@ -344,6 +348,25 @@ class Arch {
   // Get the architecture related to a module.
   static remill::Arch::ArchPtr GetModuleArch(const llvm::Module &module);
 
+  class MemoryTraceManager : public remill::TraceManager {
+   public:
+    Memory memory;
+    std::unordered_map<uint64_t, llvm::Function *> traces;
+
+    explicit MemoryTraceManager(Memory &memory);
+
+    ~MemoryTraceManager() override = default;
+
+    void SetLiftedTraceDefinition(uint64_t addr,
+                                  llvm::Function *lifted_func) override;
+
+    llvm::Function *GetLiftedTraceDeclaration(uint64_t addr) override;
+
+    llvm::Function *GetLiftedTraceDefinition(uint64_t addr) override;
+
+    bool TryReadExecutableByte(uint64_t addr, uint8_t *byte) override;
+  };
+
   const OSName os_name;
   const ArchName arch_name;
 
@@ -352,6 +375,14 @@ class Arch {
 
   // Constant pointer to non-const object
   llvm::LLVMContext *const context;
+
+  inline void SetMemory(Memory &memory) {
+    manager = std::make_unique<MemoryTraceManager>(memory);
+  }
+
+  inline MemoryTraceManager *GetTraceManager() const {
+    return manager.get();
+  };
 
   bool IsX86() const;
   bool IsAMD64() const;
@@ -448,7 +479,7 @@ class Arch {
   static ArchPtr GetSPARC64(llvm::LLVMContext *context, OSName os,
                             ArchName arch_name);
 
-  Arch() = delete;
+  std::unique_ptr<MemoryTraceManager> manager;
 };
 
 }  // namespace remill

@@ -510,6 +510,10 @@ llvm::Value *InstructionLifter::LiftShiftRegisterOperand(
   return reg;
 }
 
+const Arch *InstructionLifter::GetArch() const {
+  return impl->arch;
+}
+
 namespace {
 
 static llvm::Type *IntendedArgumentType(llvm::Argument *arg) {

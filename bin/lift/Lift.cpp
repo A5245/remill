@@ -25,32 +25,24 @@
 #include <llvm/IR/LLVMContext.h>
 #include <llvm/IR/Module.h>
 #include <llvm/IR/Type.h>
-#include <llvm/IR/Verifier.h>
 #include <llvm/Support/FileSystem.h>
 #include <llvm/Support/raw_ostream.h>
 #include <remill/Arch/Arch.h>
-#include <remill/Arch/Instruction.h>
 #include <remill/Arch/Name.h>
-#include <remill/BC/ABI.h>
 #include <remill/BC/IntrinsicTable.h>
 #include <remill/BC/Lifter.h>
 #include <remill/BC/Optimizer.h>
 #include <remill/BC/Util.h>
-#include <remill/BC/Version.h>
 #include <remill/OS/OS.h>
 #include <remill/Version/Version.h>
 
 #include <LIEF/ELF.hpp>
-#include <algorithm>
-#include <cstdint>
-#include <fstream>
 #include <functional>
 #include <iostream>
 #include <map>
 #include <memory>
 #include <sstream>
 #include <string>
-#include <system_error>
 
 DEFINE_string(os, REMILL_OS,
               "Operating system name of the code being "
@@ -83,12 +75,10 @@ DEFINE_string(slice_outputs, "",
 
 DEFINE_string(input, "", "input file to lift");
 
-using Memory = std::map<uint64_t, uint8_t>;
-
 // Unhexlify the data passed to `--bytes`, and fill in `memory` with each
 // such byte.
-static Memory UnhexlifyInputBytes(uint64_t addr_mask) {
-  Memory memory;
+static remill::Arch::Memory UnhexlifyInputBytes(uint64_t addr_mask) {
+  remill::Arch::Memory memory;
 
   for (size_t i = 0; i < FLAGS_bytes.size(); i += 2) {
     char nibbles[] = {FLAGS_bytes[i], FLAGS_bytes[i + 1], '\0'};
@@ -124,8 +114,8 @@ static Memory UnhexlifyInputBytes(uint64_t addr_mask) {
   return memory;
 }
 
-static Memory mmapSo(const char *path) {
-  Memory memory;
+static remill::Arch::Memory mmapSo(const char *path) {
+  remill::Arch::Memory memory;
   auto so = LIEF::ELF::Parser::parse(path);
   for (auto &it : so->segments()) {
     if (it.type() == LIEF::ELF::SEGMENT_TYPES::PT_LOAD) {
@@ -137,61 +127,6 @@ static Memory mmapSo(const char *path) {
   }
   return memory;
 }
-
-class SimpleTraceManager : public remill::TraceManager {
- public:
-  virtual ~SimpleTraceManager(void) = default;
-
-  explicit SimpleTraceManager(Memory &memory_) : memory(memory_) {}
-
- protected:
-  // Called when we have lifted, i.e. defined the contents, of a new trace.
-  // The derived class is expected to do something useful with this.
-  void SetLiftedTraceDefinition(uint64_t addr,
-                                llvm::Function *lifted_func) override {
-    traces[addr] = lifted_func;
-  }
-
-  // Get a declaration for a lifted trace. The idea here is that a derived
-  // class might have additional global info available to them that lets
-  // them declare traces ahead of time. In order to distinguish between
-  // stuff we've lifted, and stuff we haven't lifted, we allow the lifter
-  // to access "defined" vs. "declared" traces.
-  //
-  // NOTE: This is permitted to return a function from an arbitrary module.
-  llvm::Function *GetLiftedTraceDeclaration(uint64_t addr) override {
-    auto trace_it = traces.find(addr);
-    if (trace_it != traces.end()) {
-      return trace_it->second;
-    } else {
-      return nullptr;
-    }
-  }
-
-  // Get a definition for a lifted trace.
-  //
-  // NOTE: This is permitted to return a function from an arbitrary module.
-  llvm::Function *GetLiftedTraceDefinition(uint64_t addr) override {
-    return GetLiftedTraceDeclaration(addr);
-  }
-
-  // Try to read an executable byte of memory. Returns `true` of the byte
-  // at address `addr` is executable and readable, and updates the byte
-  // pointed to by `byte` with the read value.
-  bool TryReadExecutableByte(uint64_t addr, uint8_t *byte) override {
-    auto byte_it = memory.find(addr);
-    if (byte_it != memory.end()) {
-      *byte = byte_it->second;
-      return true;
-    } else {
-      return false;
-    }
-  }
-
- public:
-  Memory &memory;
-  std::unordered_map<uint64_t, llvm::Function *> traces;
-};
 
 // Looks for calls to a function like `__remill_function_return`, and
 // replace its state pointer with a null pointer so that the state
@@ -211,10 +146,10 @@ static void MuteStateEscape(llvm::Module *module, const char *func_name) {
   }
 }
 
-static void SetVersion(void) {
+static void SetVersion() {
   std::stringstream ss;
   auto vs = remill::version::GetVersionString();
-  if (0 == vs.size()) {
+  if (vs.empty()) {
     vs = "unknown";
   }
   ss << vs << "\n";
@@ -289,24 +224,28 @@ int main(int argc, char *argv[]) {
 
   const auto mem_ptr_type = arch->MemoryPointerType();
 
-  Memory memory = FLAGS_input.empty() ? UnhexlifyInputBytes(addr_mask)
-                                      : mmapSo(FLAGS_input.c_str());
-  SimpleTraceManager manager(memory);
+  remill::Arch::Memory memory = FLAGS_input.empty()
+                                    ? UnhexlifyInputBytes(addr_mask)
+                                    : mmapSo(FLAGS_input.c_str());
+  arch->SetMemory(memory);
   remill::IntrinsicTable intrinsics(module.get());
 
 
   auto inst_lifter = arch->DefaultLifter(intrinsics);
 
-  remill::TraceLifter trace_lifter(arch.get(), manager);
+  auto *trace = arch->GetTraceManager();
+  remill::TraceLifter trace_lifter(arch.get(), trace);
 
   // Lift all discoverable traces starting from `--entry_address` into
   // `module`.
   trace_lifter.Lift(FLAGS_entry_address);
 
+  auto &traces = trace->traces;
+
   // Optimize the module, but with a particular focus on only the functions
   // that we actually lifted.
   remill::OptimizationGuide guide = {};
-  remill::OptimizeModule(arch, module, manager.traces, guide);
+  remill::OptimizeModule(arch, module, traces, guide);
 
   // Create a new module in which we will move all the lifted functions. Prepare
   // the module for code of this architecture, i.e. set the data layout, triple,
@@ -322,7 +261,7 @@ int main(int argc, char *argv[]) {
   // because it won't be bogged down with all of the semantics definitions.
   // This is a good JITing strategy: optimize the lifted code in the semantics
   // module, move it to a new module, instrument it there, then JIT compile it.
-  for (auto &lifted_entry : manager.traces) {
+  for (auto &lifted_entry : traces) {
     if (lifted_entry.first == FLAGS_entry_address) {
       entry_trace = lifted_entry.second;
     }

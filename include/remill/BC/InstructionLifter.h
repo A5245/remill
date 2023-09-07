@@ -170,6 +170,7 @@ class InstructionLifter : public InstructionLifterIntf {
   LoadWordRegValOrZero(llvm::BasicBlock *block, llvm::Value *state_ptr,
                        std::string_view reg_name, llvm::ConstantInt *zero);
 
+  const Arch *GetArch() const;
 
  protected:
   llvm::Type *GetWordType();
