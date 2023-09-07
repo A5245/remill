@@ -174,7 +174,7 @@ class Arch {
 
   virtual void UpdateContext(DecodingContext &context) = 0;
 
-  virtual void setContext(Instruction &instruction) = 0;
+  virtual void SetContext(Instruction &instruction) = 0;
 
   virtual DecodingContext CreateInitialContext() const = 0;
 

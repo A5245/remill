@@ -352,7 +352,7 @@ bool TraceLifter::Impl::Lift(
       std::ignore =
           arch->DecodeInstruction(inst_addr, inst_bytes, inst, decodingContext);
 
-      arch->setContext(inst);
+      arch->SetContext(inst);
 
       auto lift_status =
           inst.GetLifter()->LiftIntoBlock(inst, block, state_ptr);

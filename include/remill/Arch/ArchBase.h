@@ -43,7 +43,7 @@ class ArchBase : public remill::Arch {
   virtual ~ArchBase() = default;
 
   void UpdateContext(DecodingContext &context) override;
-  void setContext(Instruction &instruction) override;
+  void SetContext(Instruction &instruction) override;
 
   // Return the type of the state structure.
   llvm::StructType *StateStructType() const final;

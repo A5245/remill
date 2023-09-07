@@ -880,7 +880,7 @@ const IntrinsicTable *ArchBase::GetInstrinsicTable(void) const {
 
 void ArchBase::UpdateContext(DecodingContext &context) {}
 
-void ArchBase::setContext(Instruction &instruction) {}
+void ArchBase::SetContext(Instruction &instruction) {}
 
 
 DecodingContext DefaultContextAndLifter::CreateInitialContext(void) const {

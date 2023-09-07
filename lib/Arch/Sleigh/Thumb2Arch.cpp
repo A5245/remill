@@ -78,7 +78,7 @@ class SleighThumbArch : public AArch32ArchBase {
     }
   }
 
-  void setContext(Instruction &instruction) override {
+  void SetContext(Instruction &instruction) override {
     if (instruction.function.starts_with("it")) {
       itInst = instruction.function.size() - 1;
       if (instruction.op_str == "eq") {
