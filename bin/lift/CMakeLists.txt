@@ -29,7 +29,9 @@ add_executable(${REMILL_LIFT}
 # target settings
 #
 
-target_link_libraries(${REMILL_LIFT} PRIVATE remill)
+find_package(LIEF CONFIG REQUIRED)
+
+target_link_libraries(${REMILL_LIFT} PRIVATE remill LIEF::LIEF)
 target_include_directories(${REMILL_LIFT} SYSTEM PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}")
 
 if(REMILL_ENABLE_INSTALL_TARGET)

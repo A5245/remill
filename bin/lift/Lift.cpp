@@ -40,6 +40,7 @@
 #include <remill/OS/OS.h>
 #include <remill/Version/Version.h>
 
+#include <LIEF/ELF.hpp>
 #include <algorithm>
 #include <cstdint>
 #include <fstream>
@@ -80,6 +81,8 @@ DEFINE_string(slice_inputs, "",
 DEFINE_string(slice_outputs, "",
               "Comma-separated list of registers to treat as outputs.");
 
+DEFINE_string(input, "", "input file to lift");
+
 using Memory = std::map<uint64_t, uint8_t>;
 
 // Unhexlify the data passed to `--bytes`, and fill in `memory` with each
@@ -118,6 +121,20 @@ static Memory UnhexlifyInputBytes(uint64_t addr_mask) {
     memory[byte_addr] = static_cast<uint8_t>(byte_val);
   }
 
+  return memory;
+}
+
+static Memory mmapSo(const char *path) {
+  Memory memory;
+  auto so = LIEF::ELF::Parser::parse(path);
+  for (auto &it : so->segments()) {
+    if (it.type() == LIEF::ELF::SEGMENT_TYPES::PT_LOAD) {
+      auto content = it.content();
+      for (size_t i = 0; i < content.size(); i++) {
+        memory[it.virtual_address() + i] = content[i];
+      }
+    }
+  }
   return memory;
 }
 
@@ -223,17 +240,24 @@ int main(int argc, char *argv[]) {
   SetVersion();
   google::ParseCommandLineFlags(&argc, &argv, true);
   google::InitGoogleLogging(argv[0]);
+  google::SetStderrLogging(google::GLOG_INFO);
 
 
-  if (FLAGS_bytes.empty()) {
-    std::cerr << "Please specify a sequence of hex bytes to --bytes."
+  if (FLAGS_bytes.empty() && FLAGS_input.empty()) {
+    std::cerr
+        << "Please specify a sequence of hex bytes to --bytes or specify a path of lift file to --input."
+        << std::endl;
+    return EXIT_FAILURE;
+  }
+
+  if (FLAGS_input.empty() && FLAGS_bytes.size() % 2) {
+    std::cerr << "Please specify an even number of nibbles to --bytes."
               << std::endl;
     return EXIT_FAILURE;
   }
 
-  if (FLAGS_bytes.size() % 2) {
-    std::cerr << "Please specify an even number of nibbles to --bytes."
-              << std::endl;
+  if (FLAGS_input.empty()) {
+    std::cerr << "Please specify a path to --input." << std::endl;
     return EXIT_FAILURE;
   }
 
@@ -265,7 +289,8 @@ int main(int argc, char *argv[]) {
 
   const auto mem_ptr_type = arch->MemoryPointerType();
 
-  Memory memory = UnhexlifyInputBytes(addr_mask);
+  Memory memory = FLAGS_input.empty() ? UnhexlifyInputBytes(addr_mask)
+                                      : mmapSo(FLAGS_input.c_str());
   SimpleTraceManager manager(memory);
   remill::IntrinsicTable intrinsics(module.get());
 
