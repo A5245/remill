@@ -85,9 +85,9 @@ class ArchLocker {
   }
 
  public:
-  inline ArchLocker(void) : lock(nullptr) {}
+  inline ArchLocker() : lock(nullptr) {}
 
-  inline ~ArchLocker(void) {
+  inline ~ArchLocker() {
     if (lock) {
       lock->unlock();
     }
@@ -143,12 +143,12 @@ struct Register {
   const Register *EnclosingRegisterOfSize(uint64_t size) const;
 
   // Returns the largest enclosing register containing the current register.
-  const Register *EnclosingRegister(void) const;
+  const Register *EnclosingRegister() const;
 
   // Returns the list of directly enclosed registers. For example,
   // `RAX` will directly enclose `EAX` but nothing else. `AX` will directly
   // enclose `AH` and `AL`.
-  const std::vector<const Register *> &EnclosedRegisters(void) const;
+  const std::vector<const Register *> &EnclosedRegisters() const;
 
   // Generate a value that will let us load/store to this register, given
   // a `State *`.
@@ -168,12 +168,15 @@ struct Register {
 
 class Arch {
  public:
-  using ArchPtr = std::unique_ptr<const Arch>;
+  using ArchPtr = std::unique_ptr<Arch>;
 
-  virtual ~Arch(void);
+  virtual ~Arch();
 
+  virtual void UpdateContext(DecodingContext &context) = 0;
 
-  virtual DecodingContext CreateInitialContext(void) const = 0;
+  virtual void setContext(Instruction &instruction) = 0;
+
+  virtual DecodingContext CreateInitialContext() const = 0;
 
   // Factory method for loading the correct architecture class for a given
   // operating system and architecture class.
@@ -187,28 +190,28 @@ class Arch {
 
   // Return the type of an address, i.e. `addr_t` in the semantics. This is
   // based off of `context` and `address_size`.
-  llvm::IntegerType *AddressType(void) const;
+  llvm::IntegerType *AddressType() const;
 
   // Return the type of the state structure.
-  virtual llvm::StructType *StateStructType(void) const = 0;
+  virtual llvm::StructType *StateStructType() const = 0;
 
   // Pointer to a state structure type.
-  virtual llvm::PointerType *StatePointerType(void) const = 0;
+  virtual llvm::PointerType *StatePointerType() const = 0;
 
   // The type of memory.
-  virtual llvm::PointerType *MemoryPointerType(void) const = 0;
+  virtual llvm::PointerType *MemoryPointerType() const = 0;
 
   // Return the type of a lifted function.
-  virtual llvm::FunctionType *LiftedFunctionType(void) const = 0;
+  virtual llvm::FunctionType *LiftedFunctionType() const = 0;
 
   // Returns the type of the register window. If the architecture doesn't have a register window, a
   // null pointer will be returned.
-  virtual llvm::StructType *RegisterWindowType(void) const = 0;
+  virtual llvm::StructType *RegisterWindowType() const = 0;
 
 
-  virtual const IntrinsicTable *GetInstrinsicTable(void) const = 0;
+  virtual const IntrinsicTable *GetInstrinsicTable() const = 0;
 
-  virtual unsigned RegMdID(void) const = 0;
+  virtual unsigned RegMdID() const = 0;
 
   // Apply `cb` to every register.
   virtual void
@@ -222,10 +225,10 @@ class Arch {
   virtual const Register *RegisterByName(std::string_view name) const = 0;
 
   // Returns the name of the stack pointer register.
-  virtual std::string_view StackPointerRegisterName(void) const = 0;
+  virtual std::string_view StackPointerRegisterName() const = 0;
 
   // Returns the name of the program counter register.
-  virtual std::string_view ProgramCounterRegisterName(void) const = 0;
+  virtual std::string_view ProgramCounterRegisterName() const = 0;
 
   // Create a lifted function declaration with name `name` inside of `module`.
   //
@@ -317,16 +320,16 @@ class Arch {
                                       bool permit_fuse_idioms = true) const = 0;
 
   // Default calling convention for this architecture.
-  virtual llvm::CallingConv::ID DefaultCallingConv(void) const = 0;
+  virtual llvm::CallingConv::ID DefaultCallingConv() const = 0;
 
   // Get the LLVM triple for this architecture.
-  virtual llvm::Triple Triple(void) const = 0;
+  virtual llvm::Triple Triple() const = 0;
 
   // Get the LLVM DataLayout for this architecture.
-  virtual llvm::DataLayout DataLayout(void) const = 0;
+  virtual llvm::DataLayout DataLayout() const = 0;
 
   // Returns `true` if memory access are little endian byte ordered.
-  virtual bool MemoryAccessIsLittleEndian(void) const;
+  virtual bool MemoryAccessIsLittleEndian() const;
 
   // Returns `true` if a given instruction might have a delay slot.
   virtual bool MayHaveDelaySlot(const Instruction &inst) const;
@@ -350,18 +353,18 @@ class Arch {
   // Constant pointer to non-const object
   llvm::LLVMContext *const context;
 
-  bool IsX86(void) const;
-  bool IsAMD64(void) const;
-  bool IsAArch32(void) const;
-  bool IsAArch64(void) const;
-  bool IsSPARC32(void) const;
-  bool IsSPARC64(void) const;
-  bool IsPPC(void) const;
+  bool IsX86() const;
+  bool IsAMD64() const;
+  bool IsAArch32() const;
+  bool IsAArch64() const;
+  bool IsSPARC32() const;
+  bool IsSPARC64() const;
+  bool IsPPC() const;
 
-  bool IsWindows(void) const;
-  bool IsLinux(void) const;
-  bool IsMacOS(void) const;
-  bool IsSolaris(void) const;
+  bool IsWindows() const;
+  bool IsLinux() const;
+  bool IsMacOS() const;
+  bool IsSolaris() const;
 
   // Avoids global cache
   static ArchPtr Build(llvm::LLVMContext *context, OSName os,
@@ -375,7 +378,7 @@ class Arch {
   //
   // NOTE(pag): Internal API; do not invoke unless you are proxying/composing
   //            architectures.
-  virtual void PopulateRegisterTable(void) const = 0;
+  virtual void PopulateRegisterTable() const = 0;
 
   // Populate a just-initialized lifted function function with architecture-
   // specific variables.
@@ -403,7 +406,7 @@ class Arch {
  protected:
   Arch(llvm::LLVMContext *context_, OSName os_name_, ArchName arch_name_);
 
-  llvm::Triple BasicTriple(void) const;
+  llvm::Triple BasicTriple() const;
 
  private:
   static ArchPtr GetArchByName(llvm::LLVMContext *context_, OSName os_name_,
@@ -445,7 +448,7 @@ class Arch {
   static ArchPtr GetSPARC64(llvm::LLVMContext *context, OSName os,
                             ArchName arch_name);
 
-  Arch(void) = delete;
+  Arch() = delete;
 };
 
 }  // namespace remill

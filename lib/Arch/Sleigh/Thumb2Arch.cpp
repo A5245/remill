@@ -44,8 +44,10 @@ SleighAArch32ThumbDecoder::SleighAArch32ThumbDecoder(const remill::Arch &arch)
 void SleighAArch32ThumbDecoder::InitializeSleighContext(
     uint64_t addr, remill::sleigh::SingleInstructionSleighContext &ctxt,
     const ContextValues &values) const {
-  sleigh::SetContextRegisterValueInSleigh(
-      addr, std::string(kThumbModeRegName).c_str(), "TMode", 1, ctxt, values);
+  for (const auto &each : values) {
+    sleigh::SetContextRegisterValueInSleigh(
+        addr, each.first.c_str(), each.first.c_str(), 1, ctxt, values);
+  }
 }
 
 llvm::Value *SleighAArch32ThumbDecoder::LiftPcFromCurrPc(
@@ -66,10 +68,56 @@ class SleighThumbArch : public AArch32ArchBase {
                   ArchName arch_name_)
       : ArchBase(context_, os_name_, arch_name_),
         AArch32ArchBase(context_, os_name_, arch_name_),
+        decoder(*this),
+        itInst(0) {}
 
-        decoder(*this) {}
+  void UpdateContext(DecodingContext &context) override {
+    if (itInst != 0) {
+      context.UpdateContextReg("condit", (ccflags << 1 | 1) << 3);
+      itInst--;
+    }
+  }
 
-  virtual DecodingContext CreateInitialContext(void) const override {
+  void setContext(Instruction &instruction) override {
+    if (instruction.function.starts_with("it")) {
+      itInst = instruction.function.size() - 1;
+      if (instruction.op_str == "eq") {
+        ccflags = CCFlags::EQ;
+      } else if (instruction.op_str == "ne") {
+        ccflags = CCFlags::NE;
+      } else if (instruction.op_str == "cs") {
+        ccflags = CCFlags::CS;
+      } else if (instruction.op_str == "cc") {
+        ccflags = CCFlags::CC;
+      } else if (instruction.op_str == "mi") {
+        ccflags = CCFlags::MI;
+      } else if (instruction.op_str == "pl") {
+        ccflags = CCFlags::PL;
+      } else if (instruction.op_str == "vs") {
+        ccflags = CCFlags::VS;
+      } else if (instruction.op_str == "vc") {
+        ccflags = CCFlags::VC;
+      } else if (instruction.op_str == "hi") {
+        ccflags = CCFlags::HI;
+      } else if (instruction.op_str == "ls") {
+        ccflags = CCFlags::LS;
+      } else if (instruction.op_str == "ge") {
+        ccflags = CCFlags::GE;
+      } else if (instruction.op_str == "lt") {
+        ccflags = CCFlags::LT;
+      } else if (instruction.op_str == "gt") {
+        ccflags = CCFlags::GT;
+      } else if (instruction.op_str == "le") {
+        ccflags = CCFlags::LE;
+      } else if (instruction.op_str == "al") {
+        ccflags = CCFlags::AL;
+      } else {
+        ccflags = CCFlags::UNK;
+      }
+    }
+  }
+
+  virtual DecodingContext CreateInitialContext() const override {
     return DecodingContext().PutContextReg(std::string(kThumbModeRegName), 1);
   }
 
@@ -103,7 +151,27 @@ class SleighThumbArch : public AArch32ArchBase {
 
 
  private:
+  typedef enum {
+    EQ,
+    NE,
+    CS,
+    CC,
+    MI,
+    PL,
+    VS,
+    VC,
+    HI,
+    LS,
+    GE,
+    LT,
+    GT,
+    LE,
+    AL,
+    UNK
+  } CCFlags;
   SleighAArch32ThumbDecoder decoder;
+  CCFlags ccflags;
+  uint8_t itInst;
 };
 
 

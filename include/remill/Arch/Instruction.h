@@ -186,6 +186,7 @@ class Instruction {
 
   // Name of semantics function that implements this instruction.
   std::string function;
+  std::string op_str;
 
   // The decoded bytes of the instruction.
   std::string bytes;

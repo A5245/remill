@@ -40,21 +40,24 @@ class ArchBase : public remill::Arch {
 
   ArchBase(llvm::LLVMContext *context_, OSName os_name_, ArchName arch_name_);
 
-  virtual ~ArchBase(void) = default;
+  virtual ~ArchBase() = default;
+
+  void UpdateContext(DecodingContext &context) override;
+  void setContext(Instruction &instruction) override;
 
   // Return the type of the state structure.
-  llvm::StructType *StateStructType(void) const final;
+  llvm::StructType *StateStructType() const final;
 
   // Pointer to a state structure type.
-  llvm::PointerType *StatePointerType(void) const final;
+  llvm::PointerType *StatePointerType() const final;
 
   // The type of memory.
-  llvm::PointerType *MemoryPointerType(void) const final;
+  llvm::PointerType *MemoryPointerType() const final;
 
   // Return the type of a lifted function.
-  llvm::FunctionType *LiftedFunctionType(void) const final;
+  llvm::FunctionType *LiftedFunctionType() const final;
 
-  llvm::StructType *RegisterWindowType(void) const final;
+  llvm::StructType *RegisterWindowType() const final;
 
   // Apply `cb` to every register.
   void ForEachRegister(std::function<void(const Register *)> cb) const final;
@@ -66,9 +69,9 @@ class ArchBase : public remill::Arch {
   // Return information about a register, given its name.
   const Register *RegisterByName(std::string_view name) const final;
 
-  const IntrinsicTable *GetInstrinsicTable(void) const final;
+  const IntrinsicTable *GetInstrinsicTable() const final;
 
-  unsigned RegMdID(void) const final;
+  unsigned RegMdID() const final;
 
   // Get the state pointer and various other types from the `llvm::LLVMContext`
   // associated with `module`.
@@ -117,7 +120,7 @@ class DefaultContextAndLifter : virtual public remill::ArchBase {
       const remill::Instruction &inst) const;
 
  public:
-  virtual DecodingContext CreateInitialContext(void) const override;
+  virtual DecodingContext CreateInitialContext() const override;
 
   virtual bool DecodeInstruction(uint64_t address, std::string_view instr_bytes,
                                  Instruction &inst,

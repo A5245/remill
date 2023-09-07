@@ -84,12 +84,14 @@ class TraceManager {
 // Implements a recursive decoder that lifts a trace of instructions to bitcode.
 class TraceLifter {
  public:
-  ~TraceLifter(void);
+  TraceLifter() = delete;
 
-  inline TraceLifter(const Arch *arch_, TraceManager &manager_)
+  ~TraceLifter();
+
+  inline TraceLifter(Arch *arch_, TraceManager &manager_)
       : TraceLifter(arch_, &manager_) {}
 
-  TraceLifter(const Arch *arch_, TraceManager *manager_);
+  TraceLifter(Arch *arch_, TraceManager *manager_);
 
   static void NullCallback(uint64_t, llvm::Function *);
 
@@ -97,11 +99,9 @@ class TraceLifter {
   // lifted trace.
   bool
   Lift(uint64_t addr,
-       std::function<void(uint64_t, llvm::Function *)> callback = NullCallback);
+       const std::function<void(uint64_t, llvm::Function *)>& callback = NullCallback);
 
  private:
-  TraceLifter(void) = delete;
-
   class Impl;
 
   std::unique_ptr<Impl> impl;

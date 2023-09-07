@@ -5,7 +5,7 @@
 #include <string>
 
 namespace remill {
-inline const std::string_view kThumbModeRegName = "TMReg";
+inline const std::string_view kThumbModeRegName = "TMode";
 
 inline const remill::DecodingContext kThumbContext =
     remill::DecodingContext({{std::string(remill::kThumbModeRegName), 1}});

@@ -67,12 +67,12 @@ using DecoderWorkList = std::set<uint64_t>;  // For ordering.
 
 class TraceLifter::Impl {
  public:
-  Impl(const Arch *arch_, TraceManager *manager_);
+  Impl(Arch *arch_, TraceManager *manager_);
 
   // Lift one or more traces starting from `addr`. Calls `callback` with each
   // lifted trace.
   bool Lift(uint64_t addr,
-            std::function<void(uint64_t, llvm::Function *)> callback);
+            const std::function<void(uint64_t, llvm::Function *)> &callback);
 
   // Reads the bytes of an instruction at `addr` into `state.inst_bytes`.
   bool ReadInstructionBytes(uint64_t addr);
@@ -94,7 +94,9 @@ class TraceLifter::Impl {
   llvm::BasicBlock *GetOrCreateBlock(uint64_t block_pc) {
     auto &block = blocks[block_pc];
     if (!block) {
-      block = llvm::BasicBlock::Create(context, "", func);
+      std::stringstream ss;
+      ss << "B" << std::hex << block_pc;
+      block = llvm::BasicBlock::Create(context, ss.str(), func);
     }
     return block;
   }
@@ -129,7 +131,7 @@ class TraceLifter::Impl {
     return inst_addr;
   }
 
-  const Arch *const arch;
+  Arch *const arch;
   const remill::IntrinsicTable *intrinsics;
   llvm::Type *word_type;
   llvm::LLVMContext &context;
@@ -149,7 +151,7 @@ class TraceLifter::Impl {
   std::map<uint64_t, llvm::BasicBlock *> blocks;
 };
 
-TraceLifter::Impl::Impl(const Arch *arch_, TraceManager *manager_)
+TraceLifter::Impl::Impl(Arch *arch_, TraceManager *manager_)
     : arch(arch_),
       intrinsics(arch->GetInstrinsicTable()),
       word_type(arch->AddressType()),
@@ -206,9 +208,9 @@ llvm::Function *TraceLifter::Impl::GetLiftedTraceDefinition(uint64_t addr) {
   return extern_func;
 }
 
-TraceLifter::~TraceLifter(void) {}
+TraceLifter::~TraceLifter() = default;
 
-TraceLifter::TraceLifter(const Arch *arch_, TraceManager *manager_)
+TraceLifter::TraceLifter(Arch *arch_, TraceManager *manager_)
     : impl(new Impl(arch_, manager_)) {}
 
 void TraceLifter::NullCallback(uint64_t, llvm::Function *) {}
@@ -234,13 +236,15 @@ bool TraceLifter::Impl::ReadInstructionBytes(uint64_t addr) {
 
 // Lift one or more traces starting from `addr`.
 bool TraceLifter::Lift(
-    uint64_t addr, std::function<void(uint64_t, llvm::Function *)> callback) {
+    uint64_t addr,
+    const std::function<void(uint64_t, llvm::Function *)> &callback) {
   return impl->Lift(addr, callback);
 }
 
 // Lift one or more traces starting from `addr`.
 bool TraceLifter::Impl::Lift(
-    uint64_t addr, std::function<void(uint64_t, llvm::Function *)> callback) {
+    uint64_t addr,
+    const std::function<void(uint64_t, llvm::Function *)> &callback) {
   // Reset the lifting state.
   trace_work_list.clear();
   inst_work_list.clear();
@@ -264,6 +268,7 @@ bool TraceLifter::Impl::Lift(
     }
   };
 
+  set<uint64_t> discardBlock;
   trace_work_list.insert(addr);
   while (!trace_work_list.empty()) {
     const auto trace_addr = PopTraceAddress();
@@ -332,16 +337,22 @@ bool TraceLifter::Impl::Lift(
       }
 
       // No executable bytes here.
-      if (!ReadInstructionBytes(inst_addr)) {
+      if (discardBlock.contains(inst_addr) ||
+          !ReadInstructionBytes(inst_addr)) {
         AddTerminatingTailCall(block, intrinsics->missing_block, *intrinsics);
         continue;
       }
 
       inst.Reset();
 
+      auto decodingContext = arch->CreateInitialContext();
+      arch->UpdateContext(decodingContext);
+
       // TODO(Ian): not passing context around in trace lifter
-      std::ignore = arch->DecodeInstruction(inst_addr, inst_bytes, inst,
-                                            this->arch->CreateInitialContext());
+      std::ignore =
+          arch->DecodeInstruction(inst_addr, inst_bytes, inst, decodingContext);
+
+      arch->setContext(inst);
 
       auto lift_status =
           inst.GetLifter()->LiftIntoBlock(inst, block, state_ptr);
@@ -479,8 +490,15 @@ bool TraceLifter::Impl::Lift(
           try_add_delay_slot(true, block);
           if (inst.branch_not_taken_pc != inst.branch_taken_pc) {
             trace_work_list.insert(inst.branch_taken_pc);
+            discardBlock.insert(inst.branch_taken_pc);
             auto target_trace = get_trace_decl(inst.branch_taken_pc);
-            AddCall(block, target_trace, *intrinsics);
+            llvm::CallInst *call = AddCall(block, target_trace, *intrinsics);
+            auto [result_reg_ref, result_reg_ref_type] =
+                this->arch->DefaultLifter(*this->intrinsics)
+                    ->LoadRegAddress(&func->front(), state_ptr, "R0");
+
+            llvm::IRBuilder<> ir(block);
+            ir.CreateStore(call, result_reg_ref);
           }
 
           const auto ret_pc_ref = LoadReturnProgramCounterRef(block);
@@ -518,6 +536,7 @@ bool TraceLifter::Impl::Lift(
                                    LoadBranchTaken(block), block);
 
           trace_work_list.insert(inst.branch_taken_pc);
+          discardBlock.insert(inst.branch_taken_pc);
           auto target_trace = get_trace_decl(inst.branch_taken_pc);
 
           AddCall(taken_block, intrinsics->function_call, *intrinsics);

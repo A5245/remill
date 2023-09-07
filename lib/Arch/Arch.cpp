@@ -712,6 +712,11 @@ llvm::Function *Arch::DeclareLiftedFunction(std::string_view name_,
   auto func_type = llvm::dyn_cast<llvm::FunctionType>(
       RecontextualizeType(LiftedFunctionType(), context));
   llvm::StringRef name(name_.data(), name_.size());
+
+  llvm::Function *tmpFunc = module->getFunction(name);
+  if (tmpFunc != nullptr) {
+    return tmpFunc;
+  }
   auto func = llvm::Function::Create(
       func_type, llvm::GlobalValue::ExternalLinkage, 0u, name, module);
 
@@ -872,6 +877,10 @@ void ArchBase::InitFromSemanticsModule(llvm::Module *module) const {
 const IntrinsicTable *ArchBase::GetInstrinsicTable(void) const {
   return this->instrinsics.get();
 }
+
+void ArchBase::UpdateContext(DecodingContext &context) {}
+
+void ArchBase::setContext(Instruction &instruction) {}
 
 
 DecodingContext DefaultContextAndLifter::CreateInitialContext(void) const {

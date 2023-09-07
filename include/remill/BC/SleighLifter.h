@@ -60,7 +60,7 @@ class SleighLifter : public InstructionLifter {
                const remill::sleigh::SleighDecoder &dec_,
                const IntrinsicTable &intrinsics_);
 
-  virtual ~SleighLifter(void) = default;
+  ~SleighLifter() override = default;
 
   LiftStatus
   LiftIntoBlockWithSleighState(Instruction &inst, llvm::BasicBlock *block,
@@ -81,7 +81,7 @@ class SleighLifter : public InstructionLifter {
       const sleigh::MaybeBranchTakenVar &btaken,
       const ContextValues &context_values);
 
-  ::Sleigh &GetEngine(void) const;
+  [[nodiscard]] ::Sleigh &GetEngine() const;
 };
 
 
@@ -99,26 +99,25 @@ class SleighLifterWithState final : public InstructionLifterIntf {
 
   // Lift a single instruction into a basic block. `is_delayed` signifies that
   // this instruction will execute within the delay slot of another instruction.
-  virtual LiftStatus LiftIntoBlock(Instruction &inst, llvm::BasicBlock *block,
-                                   llvm::Value *state_ptr,
-                                   bool is_delayed = false) override;
+  LiftStatus LiftIntoBlock(Instruction &inst, llvm::BasicBlock *block,
+                           llvm::Value *state_ptr,
+                           bool is_delayed = false) override;
 
 
   // Load the address of a register.
-  virtual std::pair<llvm::Value *, llvm::Type *>
+  std::pair<llvm::Value *, llvm::Type *>
   LoadRegAddress(llvm::BasicBlock *block, llvm::Value *state_ptr,
                  std::string_view reg_name) const override;
 
   // Load the value of a register.
-  virtual llvm::Value *LoadRegValue(llvm::BasicBlock *block,
-                                    llvm::Value *state_ptr,
-                                    std::string_view reg_name) const override;
+  llvm::Value *LoadRegValue(llvm::BasicBlock *block, llvm::Value *state_ptr,
+                            std::string_view reg_name) const override;
 
-  virtual llvm::Type *GetMemoryType() override;
+  llvm::Type *GetMemoryType() override;
 
-  virtual void ClearCache(void) const override;
+  void ClearCache() const override;
 
-  const ContextValues &GetContextValues() const {
+  [[nodiscard]] const ContextValues &GetContextValues() const {
     return context_values;
   }
 };

@@ -30,15 +30,18 @@ class InstructionFunctionSetter : public AssemblyEmit {
   remill::Instruction &insn;
 
  public:
-  InstructionFunctionSetter(remill::Instruction &insn) : insn(insn) {}
+  explicit InstructionFunctionSetter(remill::Instruction &insn) : insn(insn) {}
 
-  void dump(const Address &addr, const string &mnem, const string &body) {
+  void dump(const Address &addr, const string &mnem,
+            const string &body) override {
     insn.function = mnem;
+    insn.op_str = body;
   }
 };
 
 class AssemblyLogger : public AssemblyEmit {
-  void dump(const Address &addr, const string &mnem, const string &body) {
+  void dump(const Address &addr, const string &mnem,
+            const string &body) override {
     LOG(INFO) << "Decoded " << std::hex << addr.getOffset() << ": " << mnem
               << " " << body;
   }
@@ -84,13 +87,13 @@ std::vector<std::string> SingleInstructionSleighContext::getUserOpNames() {
 }
 
 SingleInstructionSleighContext::SingleInstructionSleighContext(
-    std::string sla_name, std::string pspec_name)
+    const std::string &sla_name, const std::string &pspec_name)
     : engine(&image, &ctx) {
 
   auto guard = Arch::Lock(ArchName::kArchX86_SLEIGH);
 
   const std::optional<std::filesystem::path> sla_path =
-      ::sleigh::FindSpecFile(sla_name.c_str());
+      ::sleigh::FindSpecFile(sla_name);
   if (!sla_path) {
     LOG(FATAL) << "Couldn't find required spec file: " << sla_name << '\n';
   }
@@ -100,7 +103,7 @@ SingleInstructionSleighContext::SingleInstructionSleighContext(
   ElementId::initialize();
 
 
-  auto pspec_path = ::sleigh::FindSpecFile(pspec_name.c_str());
+  auto pspec_path = ::sleigh::FindSpecFile(pspec_name);
 
   if (!pspec_path) {
     LOG(FATAL) << "Couldn't find required pspec file: " << pspec_name << '\n';

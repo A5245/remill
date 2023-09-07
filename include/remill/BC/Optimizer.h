@@ -49,10 +49,9 @@ struct OptimizationGuide {
 };
 
 template <typename T>
-inline static void
-OptimizeModule(const std::unique_ptr<const remill::Arch> &arch,
-               const std::unique_ptr<llvm::Module> &module, T &&generator,
-               OptimizationGuide guide = {}) {
+inline static void OptimizeModule(const std::unique_ptr<remill::Arch> &arch,
+                                  const std::unique_ptr<llvm::Module> &module,
+                                  T &&generator, OptimizationGuide guide = {}) {
   return OptimizeModule(arch.get(), module.get(), generator, guide);
 }
 

@@ -1788,7 +1788,7 @@ LiftStatus SleighLifter::LiftIntoBlockWithSleighState(
   return res.first;
 }
 
-Sleigh &SleighLifter::GetEngine(void) const {
+Sleigh &SleighLifter::GetEngine() const {
   return this->sleigh_context->GetEngine();
 }
 
