@@ -922,6 +922,7 @@ class SleighLifter::PcodeToLLVMEmitIntoBlock {
       return LiftStatus::kLiftedUnsupportedInstruction;
     }
 
+    bldr.CreateStore(*should_branch, GetBranchTakenRef());
 
     // TODO(Ian): this should probably technically be != 0
     auto trunc_should_branch = bldr.CreateTrunc(
