@@ -843,6 +843,21 @@ class SleighLifter::PcodeToLLVMEmitIntoBlock {
         }
         break;
       }
+      case OpCode::CPUI_LZCOUNT: {
+        auto lzcount_inval = this->LiftIntegerInParam(bldr, input_var);
+        if (lzcount_inval.has_value()) {
+          auto *src = lzcount_inval.value();
+          llvm::Module *module = bldr.GetInsertBlock()->getModule();
+
+          llvm::Value *leadingZeros = bldr.CreateCall(
+              llvm::Intrinsic::getDeclaration(module, llvm::Intrinsic::ctlz,
+                                              src->getType()),
+              {src, bldr.getFalse()});
+
+          return this->LiftStoreIntoOutParam(bldr, leadingZeros, outvar);
+        }
+        break;
+      }
       default: break;
     }
     return LiftStatus::kLiftedUnsupportedInstruction;
