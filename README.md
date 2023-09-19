@@ -12,6 +12,10 @@ ARMv7) support is underway.
 Remill focuses on accurately lifting instructions. It is meant to be used as a library for other tools,
 e.g. [McSema](https://github.com/lifting-bits/mcsema).
 
+## Notice
+
+unreachable function only support on arm32.
+
 ## Build Status
 
 [![Build Status](https://img.shields.io/github/workflow/status/lifting-bits/remill/CI/master)](https://github.com/lifting-bits/remill/actions?query=workflow%3ACI)
@@ -58,6 +62,7 @@ get up and running with Remill. Nonetheless, the following table represents most
 | Unzip                                                                                           | Latest  |
 | [ccache](https://ccache.dev/)                                                                   | Latest  |
 | [LIEF](https://github.com/lief-project/LIEF)                                                    | Latest  |
+| [capstone](https://github.com/capstone-engine/capstone)                                         | Latest  |
 
 ## Getting and Building the Code
 
