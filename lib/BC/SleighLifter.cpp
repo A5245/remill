@@ -751,8 +751,8 @@ class SleighLifter::PcodeToLLVMEmitIntoBlock {
           return this->LiftStoreIntoOutParam(
               bldr,
               bldr.CreateZExt(
-                  bldr.CreateICmpEQ(*bneg_inval,
-                                    llvm::ConstantInt::get(byte_type, 0)),
+                  bldr.CreateXor(*bneg_inval,
+                                 llvm::ConstantInt::get(byte_type, 1)),
                   byte_type),
               outvar);
         }
