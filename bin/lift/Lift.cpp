@@ -14,6 +14,7 @@
  * limitations under the License.
  */
 
+#include <capstone/capstone.h>
 #include <gflags/gflags.h>
 #include <glog/logging.h>
 #include <llvm/IR/Constants.h>
@@ -114,7 +115,63 @@ static remill::Arch::Memory UnhexlifyInputBytes(uint64_t addr_mask) {
   return memory;
 }
 
-static remill::Arch::Memory mmapSo(const char *path) {
+static std::unordered_map<uint64_t, uint64_t>
+resolveArm32PltFunction(LIEF::ELF::Binary *binary) {
+  uint64_t vBase = 0;
+  uint64_t size = 0;
+  for (auto &dyn : binary->dynamic_entries()) {
+    if (dyn.tag() == LIEF::ELF::DYNAMIC_TAGS::DT_JMPREL) {
+      vBase = dyn.value();
+    } else if (dyn.tag() == LIEF::ELF::DYNAMIC_TAGS::DT_PLTRELSZ) {
+      size = dyn.value();
+    }
+  }
+  vBase += size + 0x14;
+  csh handle = 0;
+  if (cs_open(CS_ARCH_ARM, CS_MODE_ARM, &handle) != CS_ERR_OK ||
+      cs_option(handle, CS_OPT_DETAIL, true) != CS_ERR_OK) {
+    return {};
+  }
+  auto data = binary->segment_from_offset(vBase)->content().data();
+  uint64_t oBase = binary->virtual_address_to_offset(vBase).value();
+
+  auto current = data + oBase;
+  auto currentAddress = vBase;
+
+  std::unordered_map<uint64_t, uint64_t> result;
+
+  while (((uint32_t *) current)[0] != 0) {
+    cs_insn *inst = nullptr;
+    size_t instSize = cs_disasm(handle, current, 0xC, currentAddress, 3, &inst);
+    cs_insn &adr = inst[0];
+    cs_insn &add = inst[1];
+    cs_insn &ldr = inst[2];
+
+    uint64_t operand = add.detail->arm.op_count == 4
+                           ? add.detail->arm.operands[2].imm
+                                 << (32 - add.detail->arm.operands[3].imm)
+                           : add.detail->arm.operands[2].imm;
+
+    operand += ldr.address + ldr.detail->arm.operands[1].mem.disp;
+    result[operand] = currentAddress;
+
+    current += adr.size + add.size + ldr.size;
+    currentAddress += adr.size + add.size + ldr.size;
+    cs_free(inst, instSize);
+  }
+
+  cs_close(&handle);
+  return result;
+}
+
+static std::unordered_map<uint64_t, uint64_t>
+resolveArm64PltFunction(LIEF::ELF::Binary *binary) {
+  // TODO arm64 plt function parse to got
+  return {};
+}
+
+static remill::Arch::Memory mmapSo(const char *path, remill::Arch *arch,
+                                   std::vector<uint64_t> &noReturn) {
   remill::Arch::Memory memory;
   auto so = LIEF::ELF::Parser::parse(path);
   for (auto &it : so->segments()) {
@@ -122,6 +179,27 @@ static remill::Arch::Memory mmapSo(const char *path) {
       auto content = it.content();
       for (size_t i = 0; i < content.size(); i++) {
         memory[it.virtual_address() + i] = content[i];
+      }
+    }
+  }
+
+  if (!arch->IsThumb() && !arch->IsAArch32() && !arch->IsAArch64()) {
+    return memory;
+  }
+
+  std::unordered_map<uint64_t, uint64_t> (*func)(LIEF::ELF::Binary *binary) =
+      arch->IsThumb() || arch->IsAArch32() ? resolveArm32PltFunction
+                                           : resolveArm64PltFunction;
+
+  auto addressMapper = func(so.get());
+
+  for (auto &rel : so->pltgot_relocations()) {
+    auto &name = rel.symbol()->name();
+    if (name == "__stack_chk_fail") {
+      uint64_t got = rel.address();
+      auto it = addressMapper.find(got);
+      if (it != addressMapper.end()) {
+        noReturn.push_back(it->second);
       }
     }
   }
@@ -224,9 +302,10 @@ int main(int argc, char *argv[]) {
 
   const auto mem_ptr_type = arch->MemoryPointerType();
 
-  remill::Arch::Memory memory = FLAGS_input.empty()
-                                    ? UnhexlifyInputBytes(addr_mask)
-                                    : mmapSo(FLAGS_input.c_str());
+  std::vector<uint64_t> noReturn;
+  remill::Arch::Memory memory =
+      FLAGS_input.empty() ? UnhexlifyInputBytes(addr_mask)
+                          : mmapSo(FLAGS_input.c_str(), arch.get(), noReturn);
   arch->SetMemory(memory);
   remill::IntrinsicTable intrinsics(module.get());
 
@@ -234,7 +313,7 @@ int main(int argc, char *argv[]) {
   auto inst_lifter = arch->DefaultLifter(intrinsics);
 
   auto *trace = arch->GetTraceManager();
-  remill::TraceLifter trace_lifter(arch.get(), trace);
+  remill::TraceLifter trace_lifter(arch.get(), trace, noReturn);
 
   // Lift all discoverable traces starting from `--entry_address` into
   // `module`.

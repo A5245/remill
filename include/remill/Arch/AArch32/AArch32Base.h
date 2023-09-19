@@ -17,6 +17,7 @@ class AArch32ArchBase : public virtual ArchBase {
   AArch32ArchBase(llvm::LLVMContext *context_, OSName os_name_,
                   ArchName arch_name_)
       : ArchBase(context_, os_name_, arch_name_) {}
+  std::string_view GetCallName() const override;
 
   virtual std::string_view StackPointerRegisterName(void) const override;
 

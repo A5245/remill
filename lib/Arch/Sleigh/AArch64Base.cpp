@@ -5,6 +5,10 @@
 #include <remill/BC/Util.h>
 
 namespace remill {
+std::string_view AArch64ArchBase::GetCallName() const {
+  return "bl";
+}
+
 // Returns the name of the stack pointer register.
 std::string_view AArch64ArchBase::StackPointerRegisterName(void) const {
   return "SP";

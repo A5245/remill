@@ -69,6 +69,7 @@ class SleighThumbArch : public AArch32ArchBase {
       : ArchBase(context_, os_name_, arch_name_),
         AArch32ArchBase(context_, os_name_, arch_name_),
         decoder(*this),
+        ccflags(UNK),
         itInst(0) {}
 
   void UpdateContext(DecodingContext &context) override {

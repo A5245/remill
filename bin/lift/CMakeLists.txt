@@ -30,8 +30,9 @@ add_executable(${REMILL_LIFT}
 #
 
 find_package(LIEF CONFIG REQUIRED)
+find_package(capstone CONFIG REQUIRED)
 
-target_link_libraries(${REMILL_LIFT} PRIVATE remill LIEF::LIEF)
+target_link_libraries(${REMILL_LIFT} PRIVATE remill LIEF::LIEF capstone::capstone)
 target_include_directories(${REMILL_LIFT} SYSTEM PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}")
 
 if(REMILL_ENABLE_INSTALL_TARGET)

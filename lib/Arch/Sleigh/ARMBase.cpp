@@ -50,6 +50,10 @@ llvm::DataLayout AArch32ArchBase::DataLayout(void) const {
   return llvm::DataLayout(dl);
 }
 
+std::string_view AArch32ArchBase::GetCallName() const {
+  return "bl";
+}
+
 // Returns the name of the stack pointer register.
 std::string_view AArch32ArchBase::StackPointerRegisterName(void) const {
   return "SP";

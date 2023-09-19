@@ -400,6 +400,10 @@ bool Arch::IsAMD64() const {
   }
 }
 
+bool Arch::IsThumb() const {
+  return remill::kArchThumb2LittleEndian == arch_name;
+}
+
 bool Arch::IsAArch32() const {
   return remill::kArchAArch32LittleEndian == arch_name;
 }
@@ -881,6 +885,9 @@ const IntrinsicTable *ArchBase::GetInstrinsicTable() const {
 void ArchBase::UpdateContext(DecodingContext &context) {}
 
 void ArchBase::SetContext(Instruction &instruction) {}
+std::string_view ArchBase::GetCallName() const {
+  return "";
+}
 
 
 DecodingContext DefaultContextAndLifter::CreateInitialContext() const {

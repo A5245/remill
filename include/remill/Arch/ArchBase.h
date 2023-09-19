@@ -42,6 +42,7 @@ class ArchBase : public remill::Arch {
 
   virtual ~ArchBase() = default;
 
+  std::string_view GetCallName() const override;
   void UpdateContext(DecodingContext &context) override;
   void SetContext(Instruction &instruction) override;
 

@@ -67,7 +67,8 @@ using DecoderWorkList = std::set<uint64_t>;  // For ordering.
 
 class TraceLifter::Impl {
  public:
-  Impl(Arch *arch_, TraceManager *manager_);
+  Impl(Arch *arch_, TraceManager *manager_,
+       const std::vector<uint64_t> &noReturn);
 
   // Lift one or more traces starting from `addr`. Calls `callback` with each
   // lifted trace.
@@ -149,9 +150,11 @@ class TraceLifter::Impl {
   DecoderWorkList trace_work_list;
   DecoderWorkList inst_work_list;
   std::map<uint64_t, llvm::BasicBlock *> blocks;
+  const std::vector<uint64_t> noReturn;
 };
 
-TraceLifter::Impl::Impl(Arch *arch_, TraceManager *manager_)
+TraceLifter::Impl::Impl(Arch *arch_, TraceManager *manager_,
+                        const std::vector<uint64_t> &noReturn)
     : arch(arch_),
       intrinsics(arch->GetInstrinsicTable()),
       word_type(arch->AddressType()),
@@ -164,7 +167,8 @@ TraceLifter::Impl::Impl(Arch *arch_, TraceManager *manager_)
       block(nullptr),
       switch_inst(nullptr),
       // TODO(Ian): The trace lfiter is not supporting contexts
-      max_inst_bytes(arch->MaxInstructionSize(arch->CreateInitialContext())) {
+      max_inst_bytes(arch->MaxInstructionSize(arch->CreateInitialContext())),
+      noReturn(noReturn) {
 
   inst_bytes.reserve(max_inst_bytes);
 }
@@ -210,8 +214,9 @@ llvm::Function *TraceLifter::Impl::GetLiftedTraceDefinition(uint64_t addr) {
 
 TraceLifter::~TraceLifter() = default;
 
-TraceLifter::TraceLifter(Arch *arch_, TraceManager *manager_)
-    : impl(new Impl(arch_, manager_)) {}
+TraceLifter::TraceLifter(Arch *arch_, TraceManager *manager_,
+                         const std::vector<uint64_t> &noReturn)
+    : impl(new Impl(arch_, manager_, noReturn)) {}
 
 void TraceLifter::NullCallback(uint64_t, llvm::Function *) {}
 
@@ -505,6 +510,14 @@ bool TraceLifter::Impl::Lift(
           const auto next_pc_ref = LoadNextProgramCounterRef(block);
           llvm::IRBuilder<> ir(block);
           ir.CreateStore(ir.CreateLoad(word_type, ret_pc_ref), next_pc_ref);
+
+          if (std::find(noReturn.begin(), noReturn.end(),
+                        std::strtol(inst.op_str.c_str(), nullptr, 16)) !=
+              noReturn.end()) {
+            ir.CreateUnreachable();
+            continue;
+          }
+
           ir.CreateBr(GetOrCreateBranchNotTakenBlock());
 
           continue;

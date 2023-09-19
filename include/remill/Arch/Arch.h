@@ -176,6 +176,8 @@ class Arch {
 
   virtual ~Arch();
 
+  virtual std::string_view GetCallName() const = 0;
+
   virtual void UpdateContext(DecodingContext &context) = 0;
 
   virtual void SetContext(Instruction &instruction) = 0;
@@ -386,6 +388,7 @@ class Arch {
 
   bool IsX86() const;
   bool IsAMD64() const;
+  bool IsThumb() const;
   bool IsAArch32() const;
   bool IsAArch64() const;
   bool IsSPARC32() const;
