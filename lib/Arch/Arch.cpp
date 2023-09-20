@@ -885,7 +885,12 @@ const IntrinsicTable *ArchBase::GetInstrinsicTable() const {
 void ArchBase::UpdateContext(DecodingContext &context) {}
 
 void ArchBase::SetContext(Instruction &instruction) {}
+
 std::string_view ArchBase::GetCallName() const {
+  return "";
+}
+
+std::string_view ArchBase::GetReturnRegister() const {
   return "";
 }
 

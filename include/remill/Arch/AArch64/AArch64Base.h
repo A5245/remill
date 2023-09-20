@@ -20,6 +20,8 @@ class AArch64ArchBase : public virtual ArchBase {
 
   std::string_view GetCallName() const override;
 
+  std::string_view GetReturnRegister() const override;
+
   virtual std::string_view StackPointerRegisterName(void) const override;
 
   std::string_view ProgramCounterRegisterName(void) const override;

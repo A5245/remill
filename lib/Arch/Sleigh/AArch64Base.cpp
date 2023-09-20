@@ -9,6 +9,10 @@ std::string_view AArch64ArchBase::GetCallName() const {
   return "bl";
 }
 
+std::string_view AArch64ArchBase::GetReturnRegister() const {
+  return "X0";
+}
+
 // Returns the name of the stack pointer register.
 std::string_view AArch64ArchBase::StackPointerRegisterName(void) const {
   return "SP";

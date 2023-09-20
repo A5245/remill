@@ -500,7 +500,8 @@ bool TraceLifter::Impl::Lift(
             llvm::CallInst *call = AddCall(block, target_trace, *intrinsics);
             auto [result_reg_ref, result_reg_ref_type] =
                 this->arch->DefaultLifter(*this->intrinsics)
-                    ->LoadRegAddress(&func->front(), state_ptr, "R0");
+                    ->LoadRegAddress(&func->front(), state_ptr,
+                                     this->arch->GetReturnRegister());
 
             llvm::IRBuilder<> ir(block);
             ir.CreateStore(call, result_reg_ref);

@@ -178,6 +178,8 @@ class Arch {
 
   virtual std::string_view GetCallName() const = 0;
 
+  virtual std::string_view GetReturnRegister() const = 0;
+
   virtual void UpdateContext(DecodingContext &context) = 0;
 
   virtual void SetContext(Instruction &instruction) = 0;
