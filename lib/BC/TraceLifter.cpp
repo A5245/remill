@@ -15,6 +15,7 @@
  */
 
 #include <glog/logging.h>
+#include <lib/BC/Resolver/RuntimeContext.h>
 #include <llvm/IR/Instructions.h>
 #include <remill/Arch/Instruction.h>
 #include <remill/BC/IntrinsicTable.h>
@@ -29,7 +30,7 @@
 
 namespace remill {
 
-TraceManager::~TraceManager(void) {}
+TraceManager::~TraceManager() = default;
 
 // Return an already lifted trace starting with the code at address
 // `addr`.
@@ -102,30 +103,33 @@ class TraceLifter::Impl {
     return block;
   }
 
-  llvm::BasicBlock *GetOrCreateBranchTakenBlock(void) {
+  llvm::BasicBlock *GetOrCreateBranchTakenBlock() {
+    runtimeContext->dumpContext(inst.pc, inst.branch_taken_pc);
     inst_work_list.insert(inst.branch_taken_pc);
     return GetOrCreateBlock(inst.branch_taken_pc);
   }
 
-  llvm::BasicBlock *GetOrCreateBranchNotTakenBlock(void) {
+  llvm::BasicBlock *GetOrCreateBranchNotTakenBlock() {
     CHECK(inst.branch_not_taken_pc != 0);
+    runtimeContext->dumpContext(inst.pc, inst.branch_not_taken_pc);
     inst_work_list.insert(inst.branch_not_taken_pc);
     return GetOrCreateBlock(inst.branch_not_taken_pc);
   }
 
-  llvm::BasicBlock *GetOrCreateNextBlock(void) {
+  llvm::BasicBlock *GetOrCreateNextBlock() {
+    runtimeContext->dumpContext(inst.pc, inst.next_pc);
     inst_work_list.insert(inst.next_pc);
     return GetOrCreateBlock(inst.next_pc);
   }
 
-  uint64_t PopTraceAddress(void) {
+  uint64_t PopTraceAddress() {
     auto trace_it = trace_work_list.begin();
     const auto trace_addr = *trace_it;
     trace_work_list.erase(trace_it);
     return trace_addr;
   }
 
-  uint64_t PopInstructionAddress(void) {
+  uint64_t PopInstructionAddress() {
     auto inst_it = inst_work_list.begin();
     const auto inst_addr = *inst_it;
     inst_work_list.erase(inst_it);
@@ -151,6 +155,7 @@ class TraceLifter::Impl {
   DecoderWorkList inst_work_list;
   std::map<uint64_t, llvm::BasicBlock *> blocks;
   const std::vector<uint64_t> noReturn;
+  std::unique_ptr<RuntimeContext> runtimeContext;
 };
 
 TraceLifter::Impl::Impl(Arch *arch_, TraceManager *manager_,
@@ -168,8 +173,9 @@ TraceLifter::Impl::Impl(Arch *arch_, TraceManager *manager_,
       switch_inst(nullptr),
       // TODO(Ian): The trace lfiter is not supporting contexts
       max_inst_bytes(arch->MaxInstructionSize(arch->CreateInitialContext())),
-      noReturn(noReturn) {
-
+      noReturn(noReturn),
+      runtimeContext(std::make_unique<RuntimeContext>(arch)) {
+  inst.context = runtimeContext.get();
   inst_bytes.reserve(max_inst_bytes);
 }
 
@@ -273,6 +279,8 @@ bool TraceLifter::Impl::Lift(
     }
   };
 
+  runtimeContext->dumpContext(0, addr);
+
   set<uint64_t> discardBlock;
   trace_work_list.insert(addr);
   while (!trace_work_list.empty()) {
@@ -310,7 +318,7 @@ bool TraceLifter::Impl::Lift(
               ->LoadRegAddress(entry_block, state_ptr, kNextPCVariableName);
 
       // Initialize `NEXT_PC`.
-      (void) new llvm::StoreInst(pc, next_pc_ref, entry_block);
+      new llvm::StoreInst(pc, next_pc_ref, entry_block);
 
       // Branch to the first basic block.
       llvm::BranchInst::Create(GetOrCreateBlock(trace_addr), entry_block);

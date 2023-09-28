@@ -29,6 +29,7 @@
 using namespace ghidra;
 
 namespace remill {
+class Resolver;
 namespace sleigh {
 // If you lift a varnode before the given pcode index, then you have a branch taken metavar
 struct BranchTakenVar {
@@ -44,7 +45,7 @@ class SingleInstructionSleighContext;
 
 
 class SleighLifter : public InstructionLifter {
- private:
+ protected:
   class PcodeToLLVMEmitIntoBlock;
 
   std::unique_ptr<sleigh::SingleInstructionSleighContext> sleigh_context;
@@ -52,6 +53,7 @@ class SleighLifter : public InstructionLifter {
   // Decoder being used for disassembly
 
   const sleigh::SleighDecoder &decoder;
+  const Resolver *resolver;
 
  public:
   static const std::string_view kInstructionFunctionPrefix;
@@ -62,20 +64,22 @@ class SleighLifter : public InstructionLifter {
 
   ~SleighLifter() override = default;
 
+  void SetResolver(Resolver *resolver);
+
   LiftStatus
   LiftIntoBlockWithSleighState(Instruction &inst, llvm::BasicBlock *block,
                                llvm::Value *state_ptr, bool is_delayed,
                                const sleigh::MaybeBranchTakenVar &btaken,
                                const ContextValues &context_values);
 
- private:
+ protected:
   static void SetISelAttributes(llvm::Function *);
 
 
   llvm::Function *DefineInstructionFunction(Instruction &inst,
                                             llvm::Module *target_mod);
 
-  std::pair<LiftStatus, std::optional<llvm::Function *>>
+  virtual std::pair<LiftStatus, std::optional<llvm::Function *>>
   LiftIntoInternalBlockWithSleighState(
       Instruction &inst, llvm::Module *target_mod, bool is_delayed,
       const sleigh::MaybeBranchTakenVar &btaken,

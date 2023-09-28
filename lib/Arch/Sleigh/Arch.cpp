@@ -197,7 +197,8 @@ std::shared_ptr<remill::SleighLifter> SleighDecoder::GetLifter() const {
 
   this->lifter =
       std::make_shared<remill::SleighLifter>(this->arch, *this, *tab);
-
+  this->resolver = std::make_shared<Resolver>(&arch);
+  lifter->SetResolver(resolver.get());
   return this->lifter;
 }
 

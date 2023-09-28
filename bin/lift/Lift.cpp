@@ -253,7 +253,7 @@ int main(int argc, char *argv[]) {
   SetVersion();
   google::ParseCommandLineFlags(&argc, &argv, true);
   google::InitGoogleLogging(argv[0]);
-  google::SetStderrLogging(google::GLOG_INFO);
+  google::SetStderrLogging(google::GLOG_FATAL);
 
 
   if (FLAGS_bytes.empty() && FLAGS_input.empty()) {

@@ -384,7 +384,7 @@ class Arch {
     manager = std::make_unique<MemoryTraceManager>(memory);
   }
 
-  inline MemoryTraceManager *GetTraceManager() const {
+  [[nodiscard]] inline MemoryTraceManager *GetTraceManager() const {
     return manager.get();
   };
 

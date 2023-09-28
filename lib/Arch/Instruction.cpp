@@ -29,7 +29,7 @@
 
 namespace remill {
 
-std::string OperandExpression::Serialize(void) const {
+std::string OperandExpression::Serialize() const {
   std::stringstream ss;
   if (auto llvm_op = std::get_if<LLVMOpExpr>(this)) {
     ss << "(" << llvm::Instruction::getOpcodeName(llvm_op->llvm_opcode) << " "
@@ -50,24 +50,24 @@ std::string OperandExpression::Serialize(void) const {
   return ss.str();
 }
 
-Operand::Register::Register(void) : size(0) {}
+Operand::Register::Register() : size(0) {}
 
-Operand::ShiftRegister::ShiftRegister(void)
+Operand::ShiftRegister::ShiftRegister()
     : shift_size(0),
       extract_size(0),
       shift_first(false),
       shift_op(Operand::ShiftRegister::kShiftInvalid),
       extend_op(Operand::ShiftRegister::kExtendInvalid) {}
 
-Operand::Immediate::Immediate(void) : val(0), is_signed(false) {}
+Operand::Immediate::Immediate() : val(0), is_signed(false) {}
 
-Operand::Address::Address(void)
+Operand::Address::Address()
     : scale(0),
       displacement(0),
       address_size(0),
       kind(kInvalid) {}
 
-Operand::Operand(void)
+Operand::Operand()
     : type(Operand::kTypeInvalid),
       action(Operand::kActionInvalid),
       size(0),
@@ -84,7 +84,7 @@ static int64_t SignedImmediate(uint64_t val, uint64_t size) {
 }
 }  // namespace
 
-std::string Operand::Serialize(void) const {
+std::string Operand::Serialize() const {
   std::stringstream ss;
   switch (action) {
     case Operand::kActionInvalid: ss << "(INVALID_OP "; break;
@@ -99,7 +99,7 @@ std::string Operand::Serialize(void) const {
       break;
 
     case Operand::kTypeShiftRegister: {
-      auto shift_begin = [&](void) {
+      auto shift_begin = [&]() {
         switch (shift_reg.shift_op) {
           case Operand::ShiftRegister::kShiftInvalid: break;
 
@@ -121,13 +121,13 @@ std::string Operand::Serialize(void) const {
         }
       };
 
-      auto shift_end = [&](void) {
+      auto shift_end = [&]() {
         if (Operand::ShiftRegister::kShiftInvalid != shift_reg.shift_op) {
           ss << " " << shift_reg.shift_size << ")";
         }
       };
 
-      auto extract_begin = [&](void) {
+      auto extract_begin = [&]() {
         switch (shift_reg.extend_op) {
           case Operand::ShiftRegister::kExtendInvalid: break;
 
@@ -141,7 +141,7 @@ std::string Operand::Serialize(void) const {
         }
       };
 
-      auto extract_end = [&](void) {
+      auto extract_end = [&]() {
         switch (shift_reg.extend_op) {
           case Operand::ShiftRegister::kExtendInvalid: break;
 
@@ -281,7 +281,7 @@ std::string Operand::Serialize(void) const {
   return ss.str();
 }
 
-std::string Condition::Serialize(void) const {
+std::string Condition::Serialize() const {
   std::stringstream ss;
 
   ss << "(";
@@ -302,8 +302,9 @@ std::string Condition::Serialize(void) const {
 }
 
 
-Instruction::Instruction(void)
-    : pc(0),
+Instruction::Instruction()
+    : context(nullptr),
+      pc(0),
       next_pc(0),
       delayed_pc(0),
       branch_taken_pc(0),
@@ -319,7 +320,7 @@ Instruction::Instruction(void)
       category(Instruction::kCategoryInvalid),
       flows(Instruction::InvalidInsn()) {}
 
-void Instruction::Reset(void) {
+void Instruction::Reset() {
   pc = 0;
   next_pc = 0;
   delayed_pc = 0;
@@ -340,7 +341,7 @@ void Instruction::Reset(void) {
   next_expr_index = 0;
 }
 
-OperandExpression *Instruction::AllocateExpression(void) {
+OperandExpression *Instruction::AllocateExpression() {
   CHECK_LT(next_expr_index, kMaxNumExpr);
   return &(exprs[next_expr_index++]);
 }
@@ -441,7 +442,7 @@ Operand &Instruction::EmplaceOperand(const Operand::ShiftRegister &shift_op) {
 
   auto curr_size = reg_size;
 
-  auto do_extract = [&](void) {
+  auto do_extract = [&]() {
     if (Operand::ShiftRegister::kExtendInvalid != shift_op.extend_op) {
 
       auto extract_type = llvm::Type::getIntNTy(context, shift_op.extract_size);
@@ -483,7 +484,7 @@ Operand &Instruction::EmplaceOperand(const Operand::ShiftRegister &shift_op) {
     }
   };
 
-  auto do_shift = [&](void) {
+  auto do_shift = [&]() {
     if (Operand::ShiftRegister::kShiftInvalid != shift_op.shift_op) {
 
       // Shift size must be smaller than the op size or, for special cases in
@@ -650,7 +651,7 @@ Operand &Instruction::EmplaceOperand(const Operand::Address &addr_op) {
   return op;
 }
 
-std::string Instruction::Serialize(void) const {
+std::string Instruction::Serialize() const {
   std::stringstream ss;
   ss << "(";
 

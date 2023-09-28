@@ -12,27 +12,37 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-add_library(remill_bc STATIC
-  "${REMILL_INCLUDE_DIR}/remill/BC/ABI.h"
-  "${REMILL_INCLUDE_DIR}/remill/BC/Annotate.h"
-  "${REMILL_INCLUDE_DIR}/remill/BC/InstructionLifter.h"
-  "${REMILL_INCLUDE_DIR}/remill/BC/IntrinsicTable.h"
-  "${REMILL_INCLUDE_DIR}/remill/BC/Lifter.h"
-  "${REMILL_INCLUDE_DIR}/remill/BC/Optimizer.h"
-  "${REMILL_INCLUDE_DIR}/remill/BC/TraceLifter.h"
-  "${REMILL_INCLUDE_DIR}/remill/BC/Util.h"
-  "${REMILL_INCLUDE_DIR}/remill/BC/Version.h"
+set(ARM32_SRC
+        Resolver/AArch32/AArch32Resolver.cpp
+)
 
-  ABI.cpp
-  Annotate.cpp
-  InstructionLifter.cpp
-  InstructionLifter.h
-  IntrinsicTable.cpp
-  Optimizer.cpp
-  TraceLifter.cpp
-  SleighLifter.cpp
-  PcodeCFG.cpp
-  Util.cpp
+add_library(remill_bc STATIC
+        "${REMILL_INCLUDE_DIR}/remill/BC/ABI.h"
+        "${REMILL_INCLUDE_DIR}/remill/BC/Annotate.h"
+        "${REMILL_INCLUDE_DIR}/remill/BC/InstructionLifter.h"
+        "${REMILL_INCLUDE_DIR}/remill/BC/IntrinsicTable.h"
+        "${REMILL_INCLUDE_DIR}/remill/BC/Lifter.h"
+        "${REMILL_INCLUDE_DIR}/remill/BC/Optimizer.h"
+        "${REMILL_INCLUDE_DIR}/remill/BC/TraceLifter.h"
+        "${REMILL_INCLUDE_DIR}/remill/BC/Util.h"
+        "${REMILL_INCLUDE_DIR}/remill/BC/Version.h"
+
+        ABI.cpp
+        Annotate.cpp
+        InstructionLifter.cpp
+        InstructionLifter.h
+        IntrinsicTable.cpp
+        Optimizer.cpp
+        TraceLifter.cpp
+        SleighLifter.cpp
+        PcodeCFG.cpp
+        Util.cpp
+
+        Resolver/Resolver.cpp
+        Resolver/ResolverBase.cpp
+        Resolver/RuntimeContext.cpp
+
+        ${ARM32_SRC}
 )
 
 target_include_directories(remill_bc AFTER PRIVATE "${REMILL_SOURCE_DIR}")
@@ -40,12 +50,12 @@ target_include_directories(remill_bc AFTER PRIVATE "${REMILL_SOURCE_DIR}")
 set_property(TARGET remill_bc PROPERTY POSITION_INDEPENDENT_CODE ON)
 
 target_link_libraries(remill_bc LINK_PRIVATE
-  remill_settings
+        remill_settings
 )
 
-if(REMILL_ENABLE_INSTALL_TARGET)
-  install(
-    TARGETS remill_bc
-    EXPORT remillTargets
-  )
-endif()
+if (REMILL_ENABLE_INSTALL_TARGET)
+    install(
+            TARGETS remill_bc
+            EXPORT remillTargets
+    )
+endif ()

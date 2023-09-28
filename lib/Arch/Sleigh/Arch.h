@@ -16,6 +16,7 @@
 
 #pragma once
 #include <lib/Arch/Sleigh/ControlFlowStructuring.h>
+#include <lib/BC/Resolver/Resolver.h>
 #include <remill/Arch/ArchBase.h>
 #include <remill/BC/SleighLifter.h>
 
@@ -88,7 +89,8 @@ class SingleInstructionSleighContext {
 
   void resetContext();
 
-  SingleInstructionSleighContext(const std::string& sla_name, const std::string& pspec_name);
+  SingleInstructionSleighContext(const std::string &sla_name,
+                                 const std::string &pspec_name);
 
 
   // Builds sleigh decompiler arch. Allows access to useropmanager and other internal sleigh info mantained by the arch.
@@ -167,6 +169,7 @@ class SleighDecoder {
 
 
   mutable std::shared_ptr<remill::SleighLifter> lifter;
+  mutable std::shared_ptr<remill::Resolver> resolver;
   const remill::Arch &arch;
   ContextRegMappings context_reg_mapping;
   std::unordered_map<std::string, std::string> state_reg_remappings;

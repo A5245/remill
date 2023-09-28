@@ -30,7 +30,7 @@ class Type;
 }  // namespace llvm
 
 namespace remill {
-
+class RuntimeContext;
 class Arch;
 struct Register;
 class OperandExpression;
@@ -47,15 +47,15 @@ struct LLVMOpExpr {
 class OperandExpression : public std::variant<LLVMOpExpr, const Register *,
                                               llvm::Constant *, std::string> {
  public:
-  std::string Serialize(void) const;
+  std::string Serialize() const;
   llvm::Type *type{nullptr};
 };
 
 // Generic instruction operand.
 class Operand {
  public:
-  Operand(void);
-  ~Operand(void) = default;
+  Operand();
+  ~Operand() = default;
 
   enum Type {
     kTypeInvalid,
@@ -77,8 +77,8 @@ class Operand {
   // kTypeRegister.
   class Register {
    public:
-    Register(void);
-    ~Register(void) = default;
+    Register();
+    ~Register() = default;
 
     std::string name;
     uint64_t size;  // In bits.
@@ -86,7 +86,7 @@ class Operand {
 
   class ShiftRegister {
    public:
-    ShiftRegister(void);
+    ShiftRegister();
 
     Register reg;
     uint64_t shift_size;
@@ -115,8 +115,8 @@ class Operand {
   // kTypeImmediate.
   class Immediate {
    public:
-    Immediate(void);
-    ~Immediate(void) = default;
+    Immediate();
+    ~Immediate() = default;
 
     uint64_t val;
     bool is_signed;
@@ -132,8 +132,8 @@ class Operand {
       kControlFlowTarget
     };
 
-    Address(void);
-    ~Address(void) = default;
+    Address();
+    ~Address() = default;
 
     Register segment_base_reg;
     Register base_reg;
@@ -143,22 +143,22 @@ class Operand {
     uint64_t address_size;  // In bits.
     Kind kind;
 
-    inline bool IsMemoryAccess(void) const {
+    inline bool IsMemoryAccess() const {
       return kMemoryRead == kind || kMemoryWrite == kind;
     }
 
-    inline bool IsAddressCalculation(void) const {
+    inline bool IsAddressCalculation() const {
       return kAddressCalculation == kind;
     }
 
-    inline bool IsControlFlowTarget(void) const {
+    inline bool IsControlFlowTarget() const {
       return kControlFlowTarget == kind;
     }
   } addr;
 
   OperandExpression *expr;
 
-  std::string Serialize(void) const;
+  std::string Serialize() const;
 };
 
 class Condition {
@@ -173,20 +173,21 @@ class Condition {
   Operand::Register lhs_reg;
   Operand::Register rhs_reg;
 
-  std::string Serialize(void) const;
+  std::string Serialize() const;
 };
 
 // Generic instruction type.
 class Instruction {
  public:
-  ~Instruction(void) = default;
-  Instruction(void);
+  ~Instruction() = default;
+  Instruction();
 
-  void Reset(void);
+  void Reset();
 
   // Name of semantics function that implements this instruction.
   std::string function;
   std::string op_str;
+  remill::RuntimeContext *context;
 
   // The decoded bytes of the instruction.
   std::string bytes;
@@ -399,9 +400,9 @@ class Instruction {
 
   std::vector<Operand> operands;
 
-  std::string Serialize(void) const;
+  std::string Serialize() const;
 
-  inline bool IsControlFlow(void) const {
+  inline bool IsControlFlow() const {
     switch (category) {
       case kCategoryInvalid:
       case kCategoryNormal:
@@ -410,7 +411,7 @@ class Instruction {
     }
   }
 
-  inline bool IsDirectControlFlow(void) const {
+  inline bool IsDirectControlFlow() const {
     switch (category) {
       case kCategoryDirectFunctionCall:
       case kCategoryDirectJump:
@@ -419,7 +420,7 @@ class Instruction {
     }
   }
 
-  inline bool IsIndirectControlFlow(void) const {
+  inline bool IsIndirectControlFlow() const {
     switch (category) {
       case kCategoryIndirectFunctionCall:
       case kCategoryConditionalIndirectFunctionCall:
@@ -433,7 +434,7 @@ class Instruction {
     }
   }
 
-  inline bool IsConditionalBranch(void) const {
+  inline bool IsConditionalBranch() const {
     switch (category) {
       case kCategoryConditionalDirectFunctionCall:
       case kCategoryConditionalBranch:
@@ -444,7 +445,7 @@ class Instruction {
     }
   }
 
-  inline bool IsFunctionCall(void) const {
+  inline bool IsFunctionCall() const {
     switch (category) {
       case kCategoryDirectFunctionCall:
       case kCategoryConditionalDirectFunctionCall:
@@ -454,32 +455,32 @@ class Instruction {
     }
   }
 
-  inline bool IsFunctionReturn(void) const {
+  inline bool IsFunctionReturn() const {
     return kCategoryFunctionReturn == category ||
            kCategoryConditionalFunctionReturn == category;
   }
 
-  inline bool IsValid(void) const {
+  inline bool IsValid() const {
     return kCategoryInvalid != category;
   }
 
   // Returns `true` if this instruction results in a runtime error. An example
   // of this is a `HLT`- or `UD2`-like instruction from x86.
-  inline bool IsError(void) const {
+  inline bool IsError() const {
     return kCategoryError == category;
   }
 
   // Length, in bytes, of the instruction.
-  inline uint64_t NumBytes(void) const {
+  inline uint64_t NumBytes() const {
     return bytes.size();
   }
 
-  inline bool IsNoOp(void) const {
+  inline bool IsNoOp() const {
     return kCategoryNoOp == category;
   }
 
   // This allocates an OperandExpression
-  OperandExpression *AllocateExpression(void);
+  OperandExpression *AllocateExpression();
   OperandExpression *EmplaceRegister(const Register *);
   OperandExpression *EmplaceRegister(std::string_view reg_name);
   OperandExpression *EmplaceConstant(llvm::Constant *);

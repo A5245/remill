@@ -17,6 +17,7 @@
 #include <glog/logging.h>
 #include <lib/Arch/Sleigh/Arch.h>
 #include <lib/Arch/Sleigh/ControlFlowStructuring.h>
+#include <lib/BC/Resolver/Resolver.h>
 #include <llvm/ADT/StringExtras.h>
 #include <llvm/IR/BasicBlock.h>
 #include <llvm/IR/Constants.h>
@@ -1676,10 +1677,11 @@ SleighLifter::LiftIntoInternalBlockWithSleighState(
   this->decoder.InitializeSleighContext(inst.pc, *this->sleigh_context,
                                         context_values);
 
-  sleigh::PcodeDecoder pcode_record(this->GetEngine());
+  auto &engine = GetEngine();
+  sleigh::PcodeDecoder pcode_record(engine);
   sleigh_context->oneInstruction(inst.pc, pcode_record, inst.bytes);
   for (const auto &op : pcode_record.ops) {
-    DLOG(INFO) << "Pcodeop: " << DumpPcode(this->GetEngine(), op);
+    DLOG(INFO) << "Pcodeop: " << DumpPcode(engine, op);
   }
 
   DLOG(INFO) << "Secondary lift of bytes: " << llvm::toHex(inst.bytes);
@@ -1702,40 +1704,51 @@ SleighLifter::LiftIntoInternalBlockWithSleighState(
 
 
   //TODO(Ian): make a safe to use sleighinstruction context that wraps a context with an arch to preform reset reinits
+  LiftStatus result;
+  if (resolver->resolvedInstruction(inst, pcode_record.ops, &engine)) {
+    resolver->resolveSuccessors(
+        inst, pcode_record.ops, &engine, ir, target_func,
+        [&target_block, &internal_state_pointer,
+         this](const std::string &name) -> llvm::Value * {
+          return LoadRegValue(target_block, internal_state_pointer, name);
+        });
+    ir.CreateBr(exit_block);
+    result = kLiftedInstruction;
+  } else {
+    auto cfg = sleigh::CreateCFG(pcode_record.ops);
 
 
-  auto cfg = sleigh::CreateCFG(pcode_record.ops);
+    SleighLifter::PcodeToLLVMEmitIntoBlock::DecodingContextConstants
+        decoding_context_lifter(this->decoder.GetContextRegisterMapping(),
+                                target_mod->getContext(), context_values,
+                                target_block);
+
+    SleighLifter::PcodeToLLVMEmitIntoBlock lifter(
+        target_block, internal_state_pointer, inst, *this,
+        this->sleigh_context->getUserOpNames(), exit_block, btaken,
+        std::move(decoding_context_lifter));
 
 
-  SleighLifter::PcodeToLLVMEmitIntoBlock::DecodingContextConstants
-      decoding_context_lifter(this->decoder.GetContextRegisterMapping(),
-                              target_mod->getContext(), context_values,
-                              target_block);
+    for (auto blk : cfg.blocks) {
+      lifter.VisitBlock(blk.second);
+    }
 
-  SleighLifter::PcodeToLLVMEmitIntoBlock lifter(
-      target_block, internal_state_pointer, inst, *this,
-      this->sleigh_context->getUserOpNames(), exit_block, btaken,
-      std::move(decoding_context_lifter));
-
-
-  for (auto blk : cfg.blocks) {
-    lifter.VisitBlock(blk.second);
+    // Log error if claim_eq values that were declared saw no uses
+    if (!lifter.ClaimEqualityUsed()) {
+      LOG(ERROR) << "claim_eq value not used when lifting " << inst.Serialize();
+    }
+    ir.CreateBr(lifter.GetOrCreateBlock(0));
+    result = lifter.GetStatus();
   }
-
-  // Log error if claim_eq values that were declared saw no uses
-  if (!lifter.ClaimEqualityUsed()) {
-    LOG(ERROR) << "claim_eq value not used when lifting " << inst.Serialize();
-  }
-
-  ir.CreateBr(lifter.GetOrCreateBlock(0));
-
 
   // Setup like an ISEL
   SleighLifter::SetISelAttributes(target_func);
   remill::InitFunctionAttributes(target_func);
 
   CHECK(remill::VerifyFunction(target_func));
-  return {lifter.GetStatus(), target_func};
+  RuntimeContext::optimizeFunc(target_func);
+  inst.context->UpdateStackInfo(inst, target_func);
+  return {result, target_func};
 }
 
 LiftStatus SleighLifter::LiftIntoBlockWithSleighState(
@@ -1805,6 +1818,10 @@ LiftStatus SleighLifter::LiftIntoBlockWithSleighState(
 
 Sleigh &SleighLifter::GetEngine() const {
   return this->sleigh_context->GetEngine();
+}
+
+void SleighLifter::SetResolver(Resolver *resolver) {
+  this->resolver = resolver;
 }
 
 SleighLifterWithState::SleighLifterWithState(
