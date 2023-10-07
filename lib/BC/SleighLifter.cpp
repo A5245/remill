@@ -1747,7 +1747,7 @@ SleighLifter::LiftIntoInternalBlockWithSleighState(
 
   CHECK(remill::VerifyFunction(target_func));
   RuntimeContext::optimizeFunc(target_func);
-  inst.context->UpdateStackInfo(inst, target_func);
+  inst.context->updateStackInfo(inst, target_func);
   return {result, target_func};
 }
 

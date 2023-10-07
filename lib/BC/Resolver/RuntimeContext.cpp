@@ -26,7 +26,7 @@ RuntimeContext::RuntimeContext(Arch *arch)
   addressMapper[0]->sp[this->baseSp] = 0;
 }
 
-void RuntimeContext::UpdateStackInfo(remill::Instruction &inst,
+void RuntimeContext::updateStackInfo(remill::Instruction &inst,
                                      llvm::Function *function) {
   auto info = resolveRegisterInfo(function);
   auto *context = getContext(inst.pc);
@@ -108,19 +108,26 @@ void RuntimeContext::UpdateStackInfo(remill::Instruction &inst,
                              [](const auto *data) -> bool {
                                return llvm::isa<llvm::LoadInst>(data);
                              });
-    if (load == tainted.rend()) {
-      return;
-    }
-    auto *pointer = getPointerOperand(*load);
-    bool fromSp = sp.find(pointer->getName().str()) != sp.end();
-    bool func = findTargetCall(function, "__remill_read_memory").empty();
-    if (fromSp && func) {
-      std::unordered_map<llvm::Value *, int64_t> values;
-      values[pointer] = sp[currentSp];
-      sp[currentSp] = evalStackPointer(tainted, values);
+    if (load != tainted.rend()) {
+      auto *pointer = getPointerOperand(*load);
+      bool fromSp = sp.find(pointer->getName().str()) != sp.end();
+      bool func = findTargetCall(function, "__remill_read_memory").empty();
+      if (fromSp && func) {
+        std::unordered_map<llvm::Value *, int64_t> values;
+        values[pointer] = sp[currentSp];
+        sp[currentSp] = evalStackPointer(tainted, values);
+      } else {
+        std::for_each(
+            info->write.begin(), info->write.end(),
+            [&sp](const auto &data) -> void { sp.erase(data.first); });
+      }
+    } else if (llvm::isa<llvm::ConstantInt>(regStore->getValueOperand())) {
+      sp.erase(regStore->getPointerOperand()->getName().str());
     } else {
-      std::for_each(info->write.begin(), info->write.end(),
-                    [&sp](const auto &data) -> void { sp.erase(data.first); });
+      std::string buff;
+      llvm::raw_string_ostream stringOstream(buff);
+      stringOstream << *function;
+      LOG(FATAL) << "Unknown resolve " << buff;
     }
   }
 }
@@ -207,13 +214,21 @@ RuntimeContext::evalStackPointer(const std::vector<llvm::Instruction *> &rInst,
     if (auto *load = llvm::dyn_cast<llvm::LoadInst>(it)) {
       values[load] = values[load->getPointerOperand()];
     } else if (auto *sub = llvm::dyn_cast<llvm::SubOperator>(it)) {
-      values[sub] =
-          values[sub->getOperand(0)] -
-          llvm::dyn_cast<llvm::ConstantInt>(sub->getOperand(1))->getSExtValue();
+      auto operand = llvm::dyn_cast<llvm::ConstantInt>(sub->getOperand(1));
+      if (operand != nullptr) {
+        values[sub] = values[sub->getOperand(0)] - operand->getSExtValue();
+      } else {
+        LOG(ERROR) << "Found unresolved sp instruction";
+        values[sub] = 0;
+      }
     } else if (auto *add = llvm::dyn_cast<llvm::AddOperator>(it)) {
-      values[add] =
-          values[add->getOperand(0)] +
-          llvm::dyn_cast<llvm::ConstantInt>(add->getOperand(1))->getSExtValue();
+      auto operand = llvm::dyn_cast<llvm::ConstantInt>(add->getOperand(1));
+      if (operand != nullptr) {
+        values[add] = values[add->getOperand(0)] + operand->getSExtValue();
+      } else {
+        LOG(ERROR) << "Found unresolved sp instruction";
+        values[add] = 0;
+      }
     } else {
       std::string tmp;
       llvm::raw_string_ostream ostream(tmp);

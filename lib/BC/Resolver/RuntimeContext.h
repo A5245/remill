@@ -43,7 +43,7 @@ class RuntimeContext {
 
   ~RuntimeContext() = default;
 
-  void UpdateStackInfo(remill::Instruction &inst, llvm::Function *function);
+  void updateStackInfo(remill::Instruction &inst, llvm::Function *function);
 
   void dumpContext(uint64_t src, uint64_t dst);
 
