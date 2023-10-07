@@ -69,8 +69,8 @@ using DecoderWorkList = std::set<uint64_t>;  // For ordering.
 class TraceLifter::Impl {
  public:
   Impl(Arch *arch_, TraceManager *manager_,
-       const std::vector<uint64_t> &noReturn,
-       const std::unordered_map<uint64_t, std::string> &symbols);
+       const std::vector<uint64_t> &noReturn, Symbols symbols,
+       const std::set<uint64_t> &pltFunc);
 
   // Lift one or more traces starting from `addr`. Calls `callback` with each
   // lifted trace.
@@ -156,13 +156,14 @@ class TraceLifter::Impl {
   DecoderWorkList inst_work_list;
   std::map<uint64_t, llvm::BasicBlock *> blocks;
   const std::vector<uint64_t> noReturn;
-  const std::unordered_map<uint64_t, std::string> symbols;
+  const Symbols symbols;
+  const std::set<uint64_t> pltFunc;
   std::unique_ptr<RuntimeContext> runtimeContext;
 };
 
-TraceLifter::Impl::Impl(
-    Arch *arch_, TraceManager *manager_, const std::vector<uint64_t> &noReturn,
-    const std::unordered_map<uint64_t, std::string> &symbols)
+TraceLifter::Impl::Impl(Arch *arch_, TraceManager *manager_,
+                        const std::vector<uint64_t> &noReturn, Symbols symbols,
+                        const std::set<uint64_t> &pltFunc)
     : arch(arch_),
       intrinsics(arch->GetInstrinsicTable()),
       word_type(arch->AddressType()),
@@ -177,7 +178,8 @@ TraceLifter::Impl::Impl(
       // TODO(Ian): The trace lfiter is not supporting contexts
       max_inst_bytes(arch->MaxInstructionSize(arch->CreateInitialContext())),
       noReturn(noReturn),
-      symbols(symbols),
+      symbols(std::move(symbols)),
+      pltFunc(pltFunc),
       runtimeContext(std::make_unique<RuntimeContext>(arch)) {
   inst.context = runtimeContext.get();
   inst_bytes.reserve(max_inst_bytes);
@@ -224,10 +226,11 @@ llvm::Function *TraceLifter::Impl::GetLiftedTraceDefinition(uint64_t addr) {
 
 TraceLifter::~TraceLifter() = default;
 
-TraceLifter::TraceLifter(
-    Arch *arch_, TraceManager *manager_, const std::vector<uint64_t> &noReturn,
-    const std::unordered_map<uint64_t, std::string> &symbols)
-    : impl(new Impl(arch_, manager_, noReturn, symbols)) {}
+TraceLifter::TraceLifter(Arch *arch_, TraceManager *manager_,
+                         const std::vector<uint64_t> &noReturn,
+                         const Symbols &symbols,
+                         const std::set<uint64_t> &pltFunc)
+    : impl(new Impl(arch_, manager_, noReturn, symbols, pltFunc)) {}
 
 void TraceLifter::NullCallback(uint64_t, llvm::Function *) {}
 
@@ -297,11 +300,18 @@ bool TraceLifter::Impl::Lift(
   };
 
   runtimeContext->dumpContext(0, addr);
+  std::unordered_map<uint64_t, uint8_t> depth;
+  depth[addr] = 0;
 
-  set<uint64_t> discardBlock;
   trace_work_list.insert(addr);
   while (!trace_work_list.empty()) {
     const auto trace_addr = PopTraceAddress();
+
+    CHECK(depth.find(trace_addr) != depth.end());
+    const uint8 currentDepth = depth[trace_addr];
+    if (currentDepth > 1) {
+      continue;
+    }
 
     // Already lifted.
     func = GetLiftedTraceDefinition(trace_addr);
@@ -368,8 +378,7 @@ bool TraceLifter::Impl::Lift(
       }
 
       // No executable bytes here.
-      if (discardBlock.contains(inst_addr) ||
-          !ReadInstructionBytes(inst_addr)) {
+      if (!ReadInstructionBytes(inst_addr)) {
         AddTerminatingTailCall(block, intrinsics->missing_block, *intrinsics);
         continue;
       }
@@ -521,16 +530,17 @@ bool TraceLifter::Impl::Lift(
           try_add_delay_slot(true, block);
           if (inst.branch_not_taken_pc != inst.branch_taken_pc) {
             trace_work_list.insert(inst.branch_taken_pc);
-            discardBlock.insert(inst.branch_taken_pc);
-            auto target_trace = get_trace_decl(inst.branch_taken_pc);
-            llvm::CallInst *call = AddCall(block, target_trace, *intrinsics);
-            auto [result_reg_ref, result_reg_ref_type] =
-                this->arch->DefaultLifter(*this->intrinsics)
-                    ->LoadRegAddress(&func->front(), state_ptr,
-                                     this->arch->GetReturnRegister());
 
-            llvm::IRBuilder<> ir(block);
-            ir.CreateStore(call, result_reg_ref);
+            depth[inst.branch_taken_pc] = currentDepth + 1;
+            runtimeContext->dumpContext(0, inst.branch_taken_pc);
+
+            auto target_trace = get_trace_decl(inst.branch_taken_pc);
+            AddCall(block, target_trace, *intrinsics);
+
+            if (currentDepth > 0 ||
+                pltFunc.find(inst.branch_taken_pc) != pltFunc.end()) {
+              trace_work_list.erase(inst.branch_taken_pc);
+            }
           }
 
           const auto ret_pc_ref = LoadReturnProgramCounterRef(block);
@@ -576,8 +586,16 @@ bool TraceLifter::Impl::Lift(
                                    LoadBranchTaken(block), block);
 
           trace_work_list.insert(inst.branch_taken_pc);
-          discardBlock.insert(inst.branch_taken_pc);
+
+          depth[inst.branch_taken_pc] = currentDepth + 1;
+          runtimeContext->dumpContext(0, inst.branch_taken_pc);
+
           auto target_trace = get_trace_decl(inst.branch_taken_pc);
+
+          if (currentDepth > 0 ||
+              pltFunc.find(inst.branch_taken_pc) != pltFunc.end()) {
+            trace_work_list.erase(inst.branch_taken_pc);
+          }
 
           AddCall(taken_block, intrinsics->function_call, *intrinsics);
           AddCall(taken_block, target_trace, *intrinsics);
@@ -721,6 +739,24 @@ bool TraceLifter::Impl::Lift(
     callback(trace_addr, func);
     manager.SetLiftedTraceDefinition(trace_addr, func);
   }
+
+
+  auto infoType =
+      llvm::FunctionType::get(llvm::Type::getVoidTy(context), false);
+
+  auto info = llvm::Function::Create(
+      infoType, llvm::GlobalValue::LinkageTypes::ExternalLinkage, "lift_info",
+      module);
+  auto *entry =
+      llvm::BasicBlock::Create(context, llvm::Twine::createNull(), info);
+  llvm::IRBuilder<> builder(entry);
+  auto *start = builder.CreateGlobalString(manager.TraceName(addr));
+  auto *strPtr = builder.CreateAlloca(start->getType());
+  builder.CreateStore(start, strPtr);
+  builder.CreateLoad(strPtr->getType(), strPtr, "start_function");
+  builder.CreateRetVoid();
+
+  manager.SetLiftedTraceDefinition(0, info);
 
   return true;
 }

@@ -84,13 +84,15 @@ class TraceManager {
 // Implements a recursive decoder that lifts a trace of instructions to bitcode.
 class TraceLifter {
  public:
+  typedef std::unordered_map<uint64_t, std::string> Symbols;
+
   TraceLifter() = delete;
 
   ~TraceLifter();
 
   TraceLifter(Arch *arch_, TraceManager *manager_,
-              const std::vector<uint64_t> &noReturn,
-              const std::unordered_map<uint64_t, std::string> &symbols);
+              const std::vector<uint64_t> &noReturn, const Symbols &symbols,
+              const std::set<uint64_t> &pltFunc);
 
   static void NullCallback(uint64_t, llvm::Function *);
 

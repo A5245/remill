@@ -172,7 +172,7 @@ resolveArm64PltFunction(LIEF::ELF::Binary *binary) {
 
 static remill::Arch::Memory
 resolveSo(const char *path, remill::Arch *arch, std::vector<uint64_t> &noReturn,
-          std::unordered_map<uint64_t, std::string> &symbols) {
+          remill::TraceLifter::Symbols &symbols, std::set<uint64_t> &pltFunc) {
   remill::Arch::Memory memory;
   auto so = LIEF::ELF::Parser::parse(path);
   for (auto &it : so->segments()) {
@@ -197,6 +197,9 @@ resolveSo(const char *path, remill::Arch *arch, std::vector<uint64_t> &noReturn,
                                            : resolveArm64PltFunction;
 
   auto addressMapper = func(so.get());
+  std::for_each(
+      addressMapper.begin(), addressMapper.end(),
+      [&pltFunc](const auto &each) -> void { pltFunc.insert(each.second); });
 
   for (auto &rel : so->pltgot_relocations()) {
     auto &name = rel.symbol()->name();
@@ -310,11 +313,12 @@ int main(int argc, char *argv[]) {
   const auto mem_ptr_type = arch->MemoryPointerType();
 
   std::vector<uint64_t> noReturn;
-  std::unordered_map<uint64_t, std::string> symbols;
-  remill::Arch::Memory memory =
-      FLAGS_input.empty()
-          ? UnhexlifyInputBytes(addr_mask)
-          : resolveSo(FLAGS_input.c_str(), arch.get(), noReturn, symbols);
+  remill::TraceLifter::Symbols symbols;
+  std::set<uint64_t> pltFunc;
+  remill::Arch::Memory memory = FLAGS_input.empty()
+                                    ? UnhexlifyInputBytes(addr_mask)
+                                    : resolveSo(FLAGS_input.c_str(), arch.get(),
+                                                noReturn, symbols, pltFunc);
   arch->SetMemory(memory);
   remill::IntrinsicTable intrinsics(module.get());
 
@@ -322,7 +326,8 @@ int main(int argc, char *argv[]) {
   auto inst_lifter = arch->DefaultLifter(intrinsics);
 
   auto *trace = arch->GetTraceManager();
-  remill::TraceLifter trace_lifter(arch.get(), trace, noReturn, symbols);
+  remill::TraceLifter trace_lifter(arch.get(), trace, noReturn, symbols,
+                                   pltFunc);
 
   // Lift all discoverable traces starting from `--entry_address` into
   // `module`.
