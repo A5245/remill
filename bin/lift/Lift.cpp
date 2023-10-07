@@ -170,8 +170,9 @@ resolveArm64PltFunction(LIEF::ELF::Binary *binary) {
   return {};
 }
 
-static remill::Arch::Memory mmapSo(const char *path, remill::Arch *arch,
-                                   std::vector<uint64_t> &noReturn) {
+static remill::Arch::Memory
+resolveSo(const char *path, remill::Arch *arch, std::vector<uint64_t> &noReturn,
+          std::unordered_map<uint64_t, std::string> &symbols) {
   remill::Arch::Memory memory;
   auto so = LIEF::ELF::Parser::parse(path);
   for (auto &it : so->segments()) {
@@ -181,6 +182,10 @@ static remill::Arch::Memory mmapSo(const char *path, remill::Arch *arch,
         memory[it.virtual_address() + i] = content[i];
       }
     }
+  }
+
+  for (auto &each : so->symbols()) {
+    symbols[each.value()] = each.name();
   }
 
   if (!arch->IsThumb() && !arch->IsAArch32() && !arch->IsAArch64()) {
@@ -195,12 +200,14 @@ static remill::Arch::Memory mmapSo(const char *path, remill::Arch *arch,
 
   for (auto &rel : so->pltgot_relocations()) {
     auto &name = rel.symbol()->name();
-    if (name == "__stack_chk_fail") {
-      uint64_t got = rel.address();
-      auto it = addressMapper.find(got);
-      if (it != addressMapper.end()) {
+    uint64_t got = rel.address();
+    auto it = addressMapper.find(got);
+    if (it != addressMapper.end()) {
+      if (name == "__stack_chk_fail" || name == "exit" ||
+          name == "pthread_exit") {
         noReturn.push_back(it->second);
       }
+      symbols[it->second] = name;
     }
   }
   return memory;
@@ -303,9 +310,11 @@ int main(int argc, char *argv[]) {
   const auto mem_ptr_type = arch->MemoryPointerType();
 
   std::vector<uint64_t> noReturn;
+  std::unordered_map<uint64_t, std::string> symbols;
   remill::Arch::Memory memory =
-      FLAGS_input.empty() ? UnhexlifyInputBytes(addr_mask)
-                          : mmapSo(FLAGS_input.c_str(), arch.get(), noReturn);
+      FLAGS_input.empty()
+          ? UnhexlifyInputBytes(addr_mask)
+          : resolveSo(FLAGS_input.c_str(), arch.get(), noReturn, symbols);
   arch->SetMemory(memory);
   remill::IntrinsicTable intrinsics(module.get());
 
@@ -313,7 +322,7 @@ int main(int argc, char *argv[]) {
   auto inst_lifter = arch->DefaultLifter(intrinsics);
 
   auto *trace = arch->GetTraceManager();
-  remill::TraceLifter trace_lifter(arch.get(), trace, noReturn);
+  remill::TraceLifter trace_lifter(arch.get(), trace, noReturn, symbols);
 
   // Lift all discoverable traces starting from `--entry_address` into
   // `module`.

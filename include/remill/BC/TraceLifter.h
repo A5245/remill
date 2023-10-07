@@ -89,7 +89,8 @@ class TraceLifter {
   ~TraceLifter();
 
   TraceLifter(Arch *arch_, TraceManager *manager_,
-              const std::vector<uint64_t> &noReturn);
+              const std::vector<uint64_t> &noReturn,
+              const std::unordered_map<uint64_t, std::string> &symbols);
 
   static void NullCallback(uint64_t, llvm::Function *);
 

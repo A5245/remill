@@ -69,7 +69,8 @@ using DecoderWorkList = std::set<uint64_t>;  // For ordering.
 class TraceLifter::Impl {
  public:
   Impl(Arch *arch_, TraceManager *manager_,
-       const std::vector<uint64_t> &noReturn);
+       const std::vector<uint64_t> &noReturn,
+       const std::unordered_map<uint64_t, std::string> &symbols);
 
   // Lift one or more traces starting from `addr`. Calls `callback` with each
   // lifted trace.
@@ -155,11 +156,13 @@ class TraceLifter::Impl {
   DecoderWorkList inst_work_list;
   std::map<uint64_t, llvm::BasicBlock *> blocks;
   const std::vector<uint64_t> noReturn;
+  const std::unordered_map<uint64_t, std::string> symbols;
   std::unique_ptr<RuntimeContext> runtimeContext;
 };
 
-TraceLifter::Impl::Impl(Arch *arch_, TraceManager *manager_,
-                        const std::vector<uint64_t> &noReturn)
+TraceLifter::Impl::Impl(
+    Arch *arch_, TraceManager *manager_, const std::vector<uint64_t> &noReturn,
+    const std::unordered_map<uint64_t, std::string> &symbols)
     : arch(arch_),
       intrinsics(arch->GetInstrinsicTable()),
       word_type(arch->AddressType()),
@@ -174,6 +177,7 @@ TraceLifter::Impl::Impl(Arch *arch_, TraceManager *manager_,
       // TODO(Ian): The trace lfiter is not supporting contexts
       max_inst_bytes(arch->MaxInstructionSize(arch->CreateInitialContext())),
       noReturn(noReturn),
+      symbols(symbols),
       runtimeContext(std::make_unique<RuntimeContext>(arch)) {
   inst.context = runtimeContext.get();
   inst_bytes.reserve(max_inst_bytes);
@@ -220,9 +224,10 @@ llvm::Function *TraceLifter::Impl::GetLiftedTraceDefinition(uint64_t addr) {
 
 TraceLifter::~TraceLifter() = default;
 
-TraceLifter::TraceLifter(Arch *arch_, TraceManager *manager_,
-                         const std::vector<uint64_t> &noReturn)
-    : impl(new Impl(arch_, manager_, noReturn)) {}
+TraceLifter::TraceLifter(
+    Arch *arch_, TraceManager *manager_, const std::vector<uint64_t> &noReturn,
+    const std::unordered_map<uint64_t, std::string> &symbols)
+    : impl(new Impl(arch_, manager_, noReturn, symbols)) {}
 
 void TraceLifter::NullCallback(uint64_t, llvm::Function *) {}
 
@@ -267,13 +272,25 @@ bool TraceLifter::Impl::Lift(
   inst.Reset();
   delayed_inst.Reset();
 
+  auto get_trace_function_name = [&](uint64_t trace_addr) -> std::string {
+    auto it = symbols.find(trace_addr);
+    std::string name;
+    if (it != symbols.end()) {
+      name = it->second;
+    } else {
+      name = manager.TraceName(trace_addr);
+    }
+    return name;
+  };
+
   // Get a trace head that the manager knows about, or that we
   // will eventually tell the trace manager about.
-  auto get_trace_decl = [=](uint64_t trace_addr) -> llvm::Function * {
+  auto get_trace_decl = [&](uint64_t trace_addr) -> llvm::Function * {
     if (auto trace = GetLiftedTraceDeclaration(trace_addr)) {
       return trace;
     } else if (trace_work_list.count(trace_addr)) {
-      return arch->DeclareLiftedFunction(manager.TraceName(trace_addr), module);
+      return arch->DeclareLiftedFunction(get_trace_function_name(trace_addr),
+                                         module);
     } else {
       return nullptr;
     }
@@ -299,7 +316,8 @@ bool TraceLifter::Impl::Lift(
     blocks.clear();
 
     if (!func || !func->isDeclaration()) {
-      func = arch->DeclareLiftedFunction(manager.TraceName(trace_addr), module);
+      func = arch->DeclareLiftedFunction(get_trace_function_name(trace_addr),
+                                         module);
     }
 
     CHECK(func->isDeclaration());
