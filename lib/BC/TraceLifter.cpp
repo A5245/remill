@@ -16,6 +16,7 @@
 
 #include <glog/logging.h>
 #include <lib/BC/Resolver/RuntimeContext.h>
+#include <llvm/IR/Constants.h>
 #include <llvm/IR/Instructions.h>
 #include <remill/Arch/Instruction.h>
 #include <remill/BC/IntrinsicTable.h>
@@ -27,6 +28,8 @@
 #include <sstream>
 
 #include "InstructionLifter.h"
+
+#define MAX_DEPTH 1
 
 namespace remill {
 
@@ -275,6 +278,8 @@ bool TraceLifter::Impl::Lift(
   inst.Reset();
   delayed_inst.Reset();
 
+  std::unordered_map<std::string, uint64_t> offsetTable;
+
   auto get_trace_function_name = [&](uint64_t trace_addr) -> std::string {
     auto it = symbols.find(trace_addr);
     std::string name;
@@ -283,6 +288,7 @@ bool TraceLifter::Impl::Lift(
     } else {
       name = manager.TraceName(trace_addr);
     }
+    offsetTable[name] = trace_addr;
     return name;
   };
 
@@ -537,7 +543,7 @@ bool TraceLifter::Impl::Lift(
             auto target_trace = get_trace_decl(inst.branch_taken_pc);
             AddCall(block, target_trace, *intrinsics);
 
-            if (currentDepth > 0 ||
+            if (currentDepth > MAX_DEPTH ||
                 pltFunc.find(inst.branch_taken_pc) != pltFunc.end()) {
               trace_work_list.erase(inst.branch_taken_pc);
             }
@@ -592,7 +598,7 @@ bool TraceLifter::Impl::Lift(
 
           auto target_trace = get_trace_decl(inst.branch_taken_pc);
 
-          if (currentDepth > 0 ||
+          if (currentDepth > MAX_DEPTH ||
               pltFunc.find(inst.branch_taken_pc) != pltFunc.end()) {
             trace_work_list.erase(inst.branch_taken_pc);
           }
@@ -740,6 +746,23 @@ bool TraceLifter::Impl::Lift(
     manager.SetLiftedTraceDefinition(trace_addr, func);
   }
 
+  auto *u8Ptr = llvm::Type::getInt8PtrTy(context);
+  auto *u64 = llvm::Type::getInt64Ty(context);
+  auto *funcStructTy = llvm::StructType::create(context, {u8Ptr, u64}, "Func");
+
+  llvm::SmallVector<llvm::Constant *> structArray;
+
+  for (const auto &each : offsetTable) {
+    auto *funcName = llvm::ConstantDataArray::getString(context, each.first);
+    auto *value = new llvm::GlobalVariable(
+        *module, funcName->getType(), true,
+        llvm::GlobalValue::LinkageTypes::PrivateLinkage, funcName);
+    structArray.push_back(llvm::ConstantStruct::get(
+        funcStructTy, {value, llvm::ConstantInt::get(u64, each.second)}));
+  }
+
+  auto *arrayConst = llvm::ConstantArray::get(
+      llvm::ArrayType::get(funcStructTy, offsetTable.size()), structArray);
 
   auto infoType =
       llvm::FunctionType::get(llvm::Type::getVoidTy(context), false);
@@ -750,10 +773,17 @@ bool TraceLifter::Impl::Lift(
   auto *entry =
       llvm::BasicBlock::Create(context, llvm::Twine::createNull(), info);
   llvm::IRBuilder<> builder(entry);
-  auto *start = builder.CreateGlobalString(manager.TraceName(addr));
-  auto *strPtr = builder.CreateAlloca(start->getType());
-  builder.CreateStore(start, strPtr);
-  builder.CreateLoad(strPtr->getType(), strPtr, "start_function");
+
+  std::string funcName = get_trace_function_name(addr);
+  auto *name = llvm::ConstantDataArray::getString(context, funcName);
+  auto *strPtr =
+      builder.CreateAlloca(name->getType(), nullptr, "start_function");
+  builder.CreateStore(name, strPtr);
+
+  auto *offsetTablePtr =
+      builder.CreateAlloca(arrayConst->getType(), nullptr, "offset_table");
+  builder.CreateStore(arrayConst, offsetTablePtr);
+
   builder.CreateRetVoid();
 
   manager.SetLiftedTraceDefinition(0, info);
