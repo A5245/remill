@@ -29,7 +29,6 @@
 
 #include "InstructionLifter.h"
 
-#define MAX_DEPTH 1
 
 namespace remill {
 
@@ -306,18 +305,10 @@ bool TraceLifter::Impl::Lift(
   };
 
   runtimeContext->dumpContext(0, addr);
-  std::unordered_map<uint64_t, uint8_t> depth;
-  depth[addr] = 0;
 
   trace_work_list.insert(addr);
   while (!trace_work_list.empty()) {
     const auto trace_addr = PopTraceAddress();
-
-    CHECK(depth.find(trace_addr) != depth.end());
-    const uint8 currentDepth = depth[trace_addr];
-    if (currentDepth > 1) {
-      continue;
-    }
 
     // Already lifted.
     func = GetLiftedTraceDefinition(trace_addr);
@@ -537,14 +528,12 @@ bool TraceLifter::Impl::Lift(
           if (inst.branch_not_taken_pc != inst.branch_taken_pc) {
             trace_work_list.insert(inst.branch_taken_pc);
 
-            depth[inst.branch_taken_pc] = currentDepth + 1;
             runtimeContext->dumpContext(0, inst.branch_taken_pc);
 
             auto target_trace = get_trace_decl(inst.branch_taken_pc);
             AddCall(block, target_trace, *intrinsics);
 
-            if (currentDepth > MAX_DEPTH ||
-                pltFunc.find(inst.branch_taken_pc) != pltFunc.end()) {
+            if (pltFunc.find(inst.branch_taken_pc) != pltFunc.end()) {
               trace_work_list.erase(inst.branch_taken_pc);
             }
           }
@@ -593,13 +582,11 @@ bool TraceLifter::Impl::Lift(
 
           trace_work_list.insert(inst.branch_taken_pc);
 
-          depth[inst.branch_taken_pc] = currentDepth + 1;
           runtimeContext->dumpContext(0, inst.branch_taken_pc);
 
           auto target_trace = get_trace_decl(inst.branch_taken_pc);
 
-          if (currentDepth > MAX_DEPTH ||
-              pltFunc.find(inst.branch_taken_pc) != pltFunc.end()) {
+          if (pltFunc.find(inst.branch_taken_pc) != pltFunc.end()) {
             trace_work_list.erase(inst.branch_taken_pc);
           }
 
