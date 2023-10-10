@@ -128,8 +128,11 @@ resolveArm32PltFunction(LIEF::ELF::Binary *binary) {
   }
   vBase += size + 0x14;
   csh handle = 0;
-  if (cs_open(CS_ARCH_ARM, CS_MODE_ARM, &handle) != CS_ERR_OK ||
-      cs_option(handle, CS_OPT_DETAIL, true) != CS_ERR_OK) {
+  if (cs_open(CS_ARCH_ARM, CS_MODE_ARM, &handle) != CS_ERR_OK) {
+    return {};
+  }
+  if (cs_option(handle, CS_OPT_DETAIL, true) != CS_ERR_OK) {
+    cs_close(&handle);
     return {};
   }
   auto data = binary->segment_from_offset(vBase)->content().data();
