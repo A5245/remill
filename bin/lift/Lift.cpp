@@ -115,6 +115,31 @@ static remill::Arch::Memory UnhexlifyInputBytes(uint64_t addr_mask) {
   return memory;
 }
 
+class AutoFree {
+ private:
+  cs_insn *inst;
+  size_t size;
+
+ public:
+  explicit AutoFree() : inst(nullptr), size(0) {}
+
+  size_t disassemble(csh handle, const uint8_t *code, size_t code_size,
+                     uint64_t address, size_t count) {
+    size = cs_disasm(handle, code, code_size, address, count, &inst);
+    return size;
+  }
+
+  cs_insn &operator[](size_t index) const {
+    return inst[index];
+  }
+
+  ~AutoFree() {
+    if (inst != nullptr) {
+      cs_free(inst, size);
+    }
+  }
+};
+
 static std::unordered_map<uint64_t, uint64_t>
 resolveArm32PltFunction(LIEF::ELF::Binary *binary) {
   uint64_t vBase = 0;
@@ -167,10 +192,93 @@ resolveArm32PltFunction(LIEF::ELF::Binary *binary) {
   return result;
 }
 
+static std::vector<uint8_t> fallbackJunkCode(LIEF::ELF::Segment &segment) {
+  auto data = segment.content();
+  std::vector<uint8_t> result(data.size());
+  memcpy(result.data(), data.data(), result.size());
+  return result;
+}
+
+static std::vector<uint8_t> parseArm32JunkCode(LIEF::ELF::Segment &segment) {
+  auto data = segment.content();
+  std::vector<uint8_t> result(data.size());
+  uint8_t *tmp = result.data();
+  memcpy(tmp, data.data(), result.size());
+  if ((segment.flags() & LIEF::ELF::ELF_SEGMENT_FLAGS::PF_X) ==
+      LIEF::ELF::ELF_SEGMENT_FLAGS::PF_X) {
+    csh handle;
+    if (cs_open(CS_ARCH_ARM, CS_MODE_THUMB, &handle) != CS_ERR_OK) {
+      return result;
+    }
+    if (cs_option(handle, CS_OPT_DETAIL, true) != CS_ERR_OK) {
+      cs_close(&handle);
+      return result;
+    }
+    for (size_t i = 0; i < result.size() - 4; i++) {
+      // MOV ?, 0
+      if ((*(uint32_t *) (tmp + i) & 0xFFFFFF) == 0x00F04F) {
+        AutoFree cmpBlock;
+        if (cmpBlock.disassemble(handle, tmp + i, 0x20, i, 3) != 3) {
+          continue;
+        }
+        // MOV ?, 0
+        // CMP ?, 0
+        // BEQ next
+        // junk data
+        cs_insn &mov = cmpBlock[0];
+        cs_insn &cmp = cmpBlock[1];
+        cs_insn &beq = cmpBlock[2];
+        if (mov.id != ARM_INS_MOV || cmp.id != ARM_INS_CMP ||
+            strcmp(beq.mnemonic, "beq") != 0) {
+          continue;
+        }
+        if (mov.detail->arm.operands[0].reg !=
+            cmp.detail->arm.operands[0].reg) {
+          continue;
+        }
+
+        uint64_t next = strtol(beq.op_str + 1, nullptr, 16);
+        if (next - beq.address - beq.size > 8) {
+          continue;
+        }
+
+        // next
+        AutoFree jumpBlock;
+        if (jumpBlock.disassemble(handle, (uint8_t *) tmp + next, 0x20, next,
+                                  5) != 5) {
+          continue;
+        }
+        cs_insn &subw = jumpBlock[0];
+        cs_insn &add = jumpBlock[1];
+        cs_insn &movConstant = jumpBlock[2];
+        cs_insn &sub = jumpBlock[3];
+        cs_insn &movPc = jumpBlock[4];
+        if (strcmp(subw.mnemonic, "subw") != 0 || add.id != ARM_INS_ADD ||
+            movConstant.id != ARM_INS_MOV || sub.id != ARM_INS_SUB ||
+            movPc.id != ARM_INS_MOV ||
+            movPc.detail->arm.operands[0].reg != ARM_REG_PC) {
+          continue;
+        }
+        size_t nopSize = next - i + subw.size + add.size + movConstant.size +
+                         sub.size + movPc.size;
+        for (size_t index = 0; index < nopSize; index += 2) {
+          // nop
+          *(uint16_t *) (tmp + i + index) = 0xBF00;
+        }
+      }
+    }
+  }
+  return result;
+}
 static std::unordered_map<uint64_t, uint64_t>
 resolveArm64PltFunction(LIEF::ELF::Binary *binary) {
   // TODO arm64 plt function parse to got
   return {};
+}
+
+static std::vector<uint8_t> parseArm64JunkCode(LIEF::ELF::Segment &segment) {
+  // TODO arm64 remove junk code
+  return fallbackJunkCode(segment);
 }
 
 static remill::Arch::Memory
@@ -178,9 +286,15 @@ resolveSo(const char *path, remill::Arch *arch, std::vector<uint64_t> &noReturn,
           remill::TraceLifter::Symbols &symbols, std::set<uint64_t> &pltFunc) {
   remill::Arch::Memory memory;
   auto so = LIEF::ELF::Parser::parse(path);
+
+  auto *parseJunkCode = arch->IsThumb() || arch->IsAArch32()
+                            ? parseArm32JunkCode
+                        : arch->IsAArch64() ? parseArm64JunkCode
+                                            : fallbackJunkCode;
+
   for (auto &it : so->segments()) {
     if (it.type() == LIEF::ELF::SEGMENT_TYPES::PT_LOAD) {
-      auto content = it.content();
+      auto content = parseJunkCode(it);
       for (size_t i = 0; i < content.size(); i++) {
         memory[it.virtual_address() + i] = content[i];
       }
@@ -195,9 +309,8 @@ resolveSo(const char *path, remill::Arch *arch, std::vector<uint64_t> &noReturn,
     return memory;
   }
 
-  std::unordered_map<uint64_t, uint64_t> (*func)(LIEF::ELF::Binary *binary) =
-      arch->IsThumb() || arch->IsAArch32() ? resolveArm32PltFunction
-                                           : resolveArm64PltFunction;
+  auto *func = arch->IsThumb() || arch->IsAArch32() ? resolveArm32PltFunction
+                                                    : resolveArm64PltFunction;
 
   auto addressMapper = func(so.get());
   std::for_each(
