@@ -332,6 +332,63 @@ resolveSo(const char *path, remill::Arch *arch, std::vector<uint64_t> &noReturn,
   return memory;
 }
 
+static void storeMemoryToModule(llvm::Module &module,
+                                remill::Arch::Memory &memory) {
+  llvm::LLVMContext &context = module.getContext();
+  auto memStoreFuncType =
+      llvm::FunctionType::get(llvm::Type::getVoidTy(context), false);
+
+  auto memStoreFunc = llvm::Function::Create(
+      memStoreFuncType, llvm::GlobalValue::LinkageTypes::ExternalLinkage,
+      "memory_info", module);
+
+  auto *u8PtrTy = llvm::Type::getInt8PtrTy(context);
+  auto *u64Ty = llvm::Type::getInt64Ty(context);
+  auto *structTy = llvm::StructType::get(context, {u64Ty, u8PtrTy});
+
+
+  std::vector<llvm::Constant *> soData;
+  auto addData = [&](uint64_t address, const std::vector<uint8_t> &data) {
+    auto *store = llvm::ConstantDataArray::get(context, data);
+    soData.push_back(llvm::ConstantStruct::get(
+        structTy,
+        {llvm::ConstantInt::get(u64Ty, address),
+         new llvm::GlobalVariable(
+             module, store->getType(), true,
+             llvm::GlobalValue::LinkageTypes::PrivateLinkage, store)}));
+  };
+
+  std::vector<uint8_t> buff;
+  uint64_t address = 0;
+  for (; !memory.empty(); address++) {
+    auto it = memory.find(address);
+    if (it == memory.end()) {
+      if (buff.empty()) {
+        continue;
+      }
+      addData(address - buff.size(), buff);
+      buff.clear();
+    } else {
+      buff.push_back(it->second);
+      memory.erase(it);
+    }
+  }
+  if (!buff.empty()) {
+    addData(address - buff.size(), buff);
+    buff.clear();
+  }
+
+  auto *entry = llvm::BasicBlock::Create(context, llvm::Twine::createNull(),
+                                         memStoreFunc);
+  llvm::IRBuilder<> builder(entry);
+
+  auto *data = llvm::ConstantArray::get(
+      llvm::ArrayType::get(structTy, soData.size()), soData);
+  auto *memoryPtr = builder.CreateAlloca(data->getType(), nullptr, "memory");
+  builder.CreateStore(data, memoryPtr);
+  builder.CreateRetVoid();
+}
+
 // Looks for calls to a function like `__remill_function_return`, and
 // replace its state pointer with a null pointer so that the state
 // pointer never escapes.
@@ -485,6 +542,8 @@ int main(int argc, char *argv[]) {
       lifted_entry.second->addFnAttr(llvm::Attribute::AlwaysInline);
     }
   }
+
+  storeMemoryToModule(dest_module, memory);
 
   // We have a prototype, so go create a function that will call our entrypoint.
   if (make_slice) {
