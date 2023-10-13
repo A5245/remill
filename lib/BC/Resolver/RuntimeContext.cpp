@@ -9,8 +9,7 @@
 #include <llvm/IR/Instructions.h>
 #include <llvm/IR/LegacyPassManager.h>
 #include <llvm/IR/Operator.h>
-#include <llvm/Transforms/IPO.h>
-#include <llvm/Transforms/IPO/PassManagerBuilder.h>
+#include <llvm/Passes/PassBuilder.h>
 #include <remill/Arch/Arch.h>
 #include <remill/Arch/Instruction.h>
 
@@ -273,28 +272,26 @@ RuntimeContext::resolveRegisterInfo(llvm::Function *function) {
 }
 
 void RuntimeContext::optimizeFunc(llvm::Function *function) {
-  llvm::legacy::FunctionPassManager func_manager(function->getParent());
+  llvm::ModuleAnalysisManager mam;
+  llvm::FunctionAnalysisManager fam;
+  llvm::LoopAnalysisManager lam;
+  llvm::CGSCCAnalysisManager cam;
 
-  auto TLI = new llvm::TargetLibraryInfoImpl(
-      llvm::Triple(function->getParent()->getTargetTriple()));
+  llvm::PassBuilder pb;
 
-  TLI->disableAllFunctions();  // `-fno-builtin`.
+  pb.registerModuleAnalyses(mam);
+  pb.registerFunctionAnalyses(fam);
+  pb.registerLoopAnalyses(lam);
+  pb.registerCGSCCAnalyses(cam);
+  pb.crossRegisterProxies(lam, fam, cam, mam);
 
-  llvm::PassManagerBuilder builder;
-  builder.OptLevel = 1;
-  builder.SizeLevel = 0;
-  builder.Inliner = llvm::createFunctionInliningPass(250);
-  builder.LibraryInfo = TLI;  // Deleted by `llvm::~PassManagerBuilder`.
-  builder.DisableUnrollLoops = false;  // Unroll loops!
-  builder.SLPVectorize = false;
-  builder.LoopVectorize = false;
-  builder.VerifyInput = false;
-  builder.VerifyOutput = false;
-  builder.MergeFunctions = false;
+  llvm::FunctionPassManager fpm = pb.buildFunctionSimplificationPipeline(
+      llvm::OptimizationLevel::O1, llvm::ThinOrFullLTOPhase::None);
+  fpm.run(*function, fam);
 
-  builder.populateFunctionPassManager(func_manager);
-  func_manager.doInitialization();
-  func_manager.run(*function);
-  func_manager.doFinalization();
+  mam.clear();
+  fam.clear();
+  lam.clear();
+  cam.clear();
 }
 }  // namespace remill
