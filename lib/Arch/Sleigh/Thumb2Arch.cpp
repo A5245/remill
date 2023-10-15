@@ -69,19 +69,22 @@ class SleighThumbArch : public AArch32ArchBase {
       : ArchBase(context_, os_name_, arch_name_),
         AArch32ArchBase(context_, os_name_, arch_name_),
         decoder(*this),
-        ccflags(UNK),
+        index(0),
         itInst(0) {}
 
   void UpdateContext(DecodingContext &context) override {
     if (itInst != 0) {
-      context.UpdateContextReg("condit", (ccflags << 1 | 1) << 3);
+      context.UpdateContextReg("condit", (ccFlags[index] << 1 | 1) << 3);
+      index++;
       itInst--;
     }
   }
 
   void SetContext(Instruction &instruction) override {
     if (instruction.function.starts_with("it")) {
+      index = 0;
       itInst = instruction.function.size() - 1;
+      CCFlags ccflags;
       if (instruction.op_str == "eq") {
         ccflags = CCFlags::EQ;
       } else if (instruction.op_str == "ne") {
@@ -114,6 +117,32 @@ class SleighThumbArch : public AArch32ArchBase {
         ccflags = CCFlags::AL;
       } else {
         ccflags = CCFlags::UNK;
+      }
+
+      size_t i = 0;
+      for (char &it : instruction.function) {
+        if (it == 't') {
+          ccFlags[i++] = ccflags;
+        } else if (it == 'e') {
+          switch (ccflags) {
+            case EQ: ccFlags[i++] = NE; break;
+            case NE: ccFlags[i++] = EQ; break;
+            case CS: ccFlags[i++] = CC; break;
+            case CC: ccFlags[i++] = CS; break;
+            case MI: ccFlags[i++] = PL; break;
+            case PL: ccFlags[i++] = MI; break;
+            case VS: ccFlags[i++] = VC; break;
+            case VC: ccFlags[i++] = VS; break;
+            case HI: ccFlags[i++] = LS; break;
+            case LS: ccFlags[i++] = HI; break;
+            case GE: ccFlags[i++] = LT; break;
+            case LT: ccFlags[i++] = GE; break;
+            case GT: ccFlags[i++] = LE; break;
+            case LE: ccFlags[i++] = GT; break;
+            case AL: ccFlags[i++] = AL; break;
+            case UNK: ccFlags[i++] = UNK; break;
+          }
+        }
       }
     }
   }
@@ -171,7 +200,8 @@ class SleighThumbArch : public AArch32ArchBase {
     UNK
   } CCFlags;
   SleighAArch32ThumbDecoder decoder;
-  CCFlags ccflags;
+  CCFlags ccFlags[4];
+  uint8_t index;
   uint8_t itInst;
 };
 
