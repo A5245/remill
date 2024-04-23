@@ -173,8 +173,6 @@ class Arch {
   using ArchPtr = std::unique_ptr<Arch>;
   using Memory = std::map<uint64_t, uint8_t>;
 
-  Arch() = delete;
-
   virtual ~Arch();
 
   virtual std::string_view GetCallName() const = 0;

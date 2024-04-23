@@ -591,7 +591,7 @@ Operand &Instruction::EmplaceOperand(const Operand::Address &addr_op) {
       << "for instruction at " << std::hex << pc
       << " is wider than the machine word size.";
 
-  auto reg_or_zero = [=](const Operand::Register &reg) {
+  auto reg_or_zero = [&](const Operand::Register &reg) {
     if (!reg.name.empty()) {
       if (auto reg_pointer = arch->RegisterByName(reg.name)) {
         return EmplaceRegister(reg_pointer);

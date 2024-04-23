@@ -14,6 +14,11 @@
  * limitations under the License.
  */
 
+#ifndef FIRST
+#  undef DEBUG
+#  include <LIEF/ELF.hpp>
+#endif
+
 #include <capstone/capstone.h>
 #include <gflags/gflags.h>
 #include <glog/logging.h>
@@ -37,7 +42,6 @@
 #include <remill/OS/OS.h>
 #include <remill/Version/Version.h>
 
-#include <LIEF/ELF.hpp>
 #include <functional>
 #include <iostream>
 #include <map>
@@ -145,9 +149,9 @@ resolveArm32PltFunction(LIEF::ELF::Binary *binary) {
   uint64_t vBase = 0;
   uint64_t size = 0;
   for (auto &dyn : binary->dynamic_entries()) {
-    if (dyn.tag() == LIEF::ELF::DYNAMIC_TAGS::DT_JMPREL) {
+    if (dyn.tag() == LIEF::ELF::DynamicEntry::TAG::JMPREL) {
       vBase = dyn.value();
-    } else if (dyn.tag() == LIEF::ELF::DYNAMIC_TAGS::DT_PLTRELSZ) {
+    } else if (dyn.tag() == LIEF::ELF::DynamicEntry::TAG::PLTRELSZ) {
       size = dyn.value();
     }
   }
@@ -204,8 +208,8 @@ static std::vector<uint8_t> parseArm32JunkCode(LIEF::ELF::Segment &segment) {
   std::vector<uint8_t> result(data.size());
   uint8_t *tmp = result.data();
   memcpy(tmp, data.data(), result.size());
-  if ((segment.flags() & LIEF::ELF::ELF_SEGMENT_FLAGS::PF_X) ==
-      LIEF::ELF::ELF_SEGMENT_FLAGS::PF_X) {
+  if ((segment.flags() & LIEF::ELF::Segment::FLAGS::X) ==
+      LIEF::ELF::Segment::FLAGS::X) {
     csh handle;
     if (cs_open(CS_ARCH_ARM, CS_MODE_THUMB, &handle) != CS_ERR_OK) {
       return result;
@@ -293,7 +297,7 @@ resolveSo(const char *path, remill::Arch *arch, std::vector<uint64_t> &noReturn,
                                             : fallbackJunkCode;
 
   for (auto &it : so->segments()) {
-    if (it.type() == LIEF::ELF::SEGMENT_TYPES::PT_LOAD) {
+    if (it.type() == LIEF::ELF::Segment::TYPE::LOAD) {
       auto content = parseJunkCode(it);
       for (size_t i = 0; i < content.size(); i++) {
         memory[it.virtual_address() + i] = content[i];
@@ -436,7 +440,7 @@ int main(int argc, char *argv[]) {
   SetVersion();
   google::ParseCommandLineFlags(&argc, &argv, true);
   google::InitGoogleLogging(argv[0]);
-  google::SetStderrLogging(google::GLOG_FATAL);
+  google::SetStderrLogging(google::GLOG_INFO);
 
 
   if (FLAGS_bytes.empty() && FLAGS_input.empty()) {

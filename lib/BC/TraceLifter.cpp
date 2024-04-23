@@ -18,6 +18,7 @@
 #include <lib/BC/Resolver/RuntimeContext.h>
 #include <llvm/IR/Constants.h>
 #include <llvm/IR/Instructions.h>
+#include <llvm/Support/FileSystem.h>
 #include <remill/Arch/Instruction.h>
 #include <remill/BC/IntrinsicTable.h>
 #include <remill/BC/TraceLifter.h>
@@ -577,6 +578,9 @@ bool TraceLifter::Impl::Lift(
             llvm::BranchInst::Create(orig_not_taken_block, not_taken_block);
           }
 
+          LOG(ERROR) << "ConditionalDirectFunctionCall at 0x" << std::hex
+                     << inst.pc;
+
           llvm::BranchInst::Create(taken_block, not_taken_block,
                                    LoadBranchTaken(block), block);
 
@@ -590,7 +594,6 @@ bool TraceLifter::Impl::Lift(
             trace_work_list.erase(inst.branch_taken_pc);
           }
 
-          AddCall(taken_block, intrinsics->function_call, *intrinsics);
           AddCall(taken_block, target_trace, *intrinsics);
 
           const auto ret_pc_ref = LoadReturnProgramCounterRef(taken_block);

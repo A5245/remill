@@ -980,11 +980,10 @@ class SleighLifter::PcodeToLLVMEmitIntoBlock {
     }
 
     auto i1 = llvm::IntegerType::get(this->context, 1);
-//    bldr.CreateStore(*should_branch, GetBranchTakenRef());
+    //    bldr.CreateStore(*should_branch, GetBranchTakenRef());
 
     // TODO(Ian): this should probably technically be != 0
-    auto trunc_should_branch = bldr.CreateTrunc(
-        *should_branch, i1 );
+    auto trunc_should_branch = bldr.CreateTrunc(*should_branch, i1);
     if (!isVarnodeInConstantSpace(lhs)) {
       // directs dont read the address of the variable, the offset is the jump
       // TODO(Ian): handle other address spaces
@@ -1724,10 +1723,11 @@ SleighLifter::LiftIntoInternalBlockWithSleighState(
   this->decoder.InitializeSleighContext(inst.pc, *this->sleigh_context,
                                         context_values);
 
-  sleigh::PcodeDecoder pcode_record(this->GetEngine());
+  auto &engine = this->GetEngine();
+  sleigh::PcodeDecoder pcode_record(engine);
   sleigh_context->oneInstruction(inst.pc, pcode_record, inst.bytes);
   for (const auto &op : pcode_record.ops) {
-    DLOG(INFO) << "Pcodeop: " << DumpPcode(this->GetEngine(), op);
+    DLOG(INFO) << "Pcodeop: " << DumpPcode(engine, op);
   }
 
   DLOG(INFO) << "Secondary lift of bytes: " << llvm::toHex(inst.bytes);
@@ -1764,28 +1764,27 @@ SleighLifter::LiftIntoInternalBlockWithSleighState(
     auto cfg = sleigh::CreateCFG(pcode_record.ops);
 
 
-  SleighLifter::PcodeToLLVMEmitIntoBlock::DecodingContextConstants
-      decoding_context_lifter(this->decoder.GetContextRegisterMapping(),
-                              target_mod->getContext(), context_values,
-                              target_block);
+    SleighLifter::PcodeToLLVMEmitIntoBlock::DecodingContextConstants
+        decoding_context_lifter(this->decoder.GetContextRegisterMapping(),
+                                target_mod->getContext(), context_values,
+                                target_block);
 
-  SleighLifter::PcodeToLLVMEmitIntoBlock lifter(
-      target_block, internal_state_pointer, inst, *this,
-      this->sleigh_context->getUserOpNames(), exit_block, btaken,
-      std::move(decoding_context_lifter));
+    SleighLifter::PcodeToLLVMEmitIntoBlock lifter(
+        target_block, internal_state_pointer, inst, *this,
+        this->sleigh_context->getUserOpNames(), exit_block, btaken,
+        std::move(decoding_context_lifter));
 
 
-  for (auto blk : cfg.blocks) {
-    lifter.VisitBlock(blk.second);
+    for (auto &blk : cfg.blocks) {
+      lifter.VisitBlock(blk.second);
+    }
+    // Log error if claim_eq values that were declared saw no uses
+    if (!lifter.ClaimEqualityUsed()) {
+      LOG(ERROR) << "claim_eq value not used when lifting " << inst.Serialize();
+    }
+
+    ir.CreateBr(lifter.GetOrCreateBlock(0));
   }
-
-  // Log error if claim_eq values that were declared saw no uses
-  if (!lifter.ClaimEqualityUsed()) {
-    LOG(ERROR) << "claim_eq value not used when lifting " << inst.Serialize();
-  }
-
-  ir.CreateBr(lifter.GetOrCreateBlock(0));
-
 
   // Setup like an ISEL
   SleighLifter::SetISelAttributes(target_func);
@@ -1832,10 +1831,13 @@ LiftStatus SleighLifter::LiftIntoBlockWithSleighState(
       intoblock_builer.CreateLoad(this->GetWordType(), next_pc_ref);
 
 
-  intoblock_builer.CreateStore(intoblock_builer.CreateZExtOrTrunc( this->decoder.LiftPcFromCurrPc(
-                                   intoblock_builer, next_pc, inst.bytes.size(),
-                                   DecodingContext(context_values)), pc_ref_type),
-                               pc_ref);
+  intoblock_builer.CreateStore(
+      intoblock_builer.CreateZExtOrTrunc(
+          this->decoder.LiftPcFromCurrPc(intoblock_builer, next_pc,
+                                         inst.bytes.size(),
+                                         DecodingContext(context_values)),
+          pc_ref_type),
+      pc_ref);
 
   intoblock_builer.CreateStore(
       intoblock_builer.CreateAdd(
