@@ -26,6 +26,7 @@
 #include <llvm/IR/LLVMContext.h>
 #include <llvm/IR/Value.h>
 #include <llvm/IR/Verifier.h>
+#include <llvm/Support/Casting.h>
 #include <remill/Arch/Context.h>
 #include <remill/Arch/Name.h>
 #include <remill/Arch/Runtime/HyperCall.h>
@@ -126,11 +127,40 @@ llvm::Value *CreatePcodeBitShift(llvm::Value *lhs, llvm::Value *rhs,
 class SleighLifter::PcodeToLLVMEmitIntoBlock {
  private:
   class Parameter {
+   private:
+    llvm::Type *vnode_type;
+    bool allows_conversions;
+
    public:
+    Parameter(llvm::Type *vnode_type, bool allows_conversions)
+        : vnode_type(vnode_type),
+          allows_conversions(allows_conversions) {}
+
     virtual ~Parameter(void) = default;
 
     virtual std::optional<llvm::Value *> LiftAsInParam(llvm::IRBuilder<> &bldr,
-                                                       llvm::Type *ty) = 0;
+                                                       llvm::Type *ty) {
+      auto mayberes = this->LiftAsInParamNoConvert(bldr, vnode_type);
+      if (!mayberes) {
+        return std::nullopt;
+      }
+
+      auto res = *mayberes;
+      if (res->getType() == ty) {
+        return res;
+      }
+
+      if (!allows_conversions ||
+          !llvm::isa<llvm::IntegerType>(res->getType()) ||
+          !llvm::isa<llvm::IntegerType>(ty)) {
+        return std::nullopt;
+      }
+
+      return bldr.CreateZExtOrTrunc(res, ty);
+    }
+
+    virtual std::optional<llvm::Value *>
+    LiftAsInParamNoConvert(llvm::IRBuilder<> &bldr, llvm::Type *ty) = 0;
 
     virtual LiftStatus StoreIntoParam(llvm::IRBuilder<> &bldr,
                                       llvm::Value *inner_lifted) = 0;
@@ -196,7 +226,9 @@ class SleighLifter::PcodeToLLVMEmitIntoBlock {
       }
 
 
-      return RegisterValue::CreateRegister(maybe_reg->second);
+      return RegisterValue::CreateRegister(
+          maybe_reg->second,
+          llvm::IntegerType::get(this->context, target_vnode.size * 8));
     }
   };
 
@@ -207,8 +239,8 @@ class SleighLifter::PcodeToLLVMEmitIntoBlock {
 
    public:
     // TODO(Ian): allow this to be fallible and have better error handling
-    std::optional<llvm::Value *> LiftAsInParam(llvm::IRBuilder<> &bldr,
-                                               llvm::Type *ty) override {
+    std::optional<llvm::Value *>
+    LiftAsInParamNoConvert(llvm::IRBuilder<> &bldr, llvm::Type *ty) override {
       return bldr.CreateLoad(ty, register_pointer);
     }
 
@@ -219,11 +251,13 @@ class SleighLifter::PcodeToLLVMEmitIntoBlock {
     }
 
    public:
-    RegisterValue(llvm::Value *register_pointer)
-        : register_pointer(register_pointer) {}
+    RegisterValue(llvm::Value *register_pointer, llvm::Type *orig_type)
+        : Parameter(orig_type, true),
+          register_pointer(register_pointer) {}
 
-    static ParamPtr CreateRegister(llvm::Value *register_pointer) {
-      return std::make_shared<RegisterValue>(register_pointer);
+    static ParamPtr CreateRegister(llvm::Value *register_pointer,
+                                   llvm::Type *vnode_type) {
+      return std::make_shared<RegisterValue>(register_pointer, vnode_type);
     }
 
     virtual ~RegisterValue() {}
@@ -234,18 +268,20 @@ class SleighLifter::PcodeToLLVMEmitIntoBlock {
    public:
     virtual ~Memory() {}
     Memory(llvm::Value *memory_ref_ptr, llvm::Value *index,
-           const IntrinsicTable *intrinsics, llvm::Type *memory_ptr_type)
-        : memory_ref_ptr(memory_ref_ptr),
+           const IntrinsicTable *intrinsics, llvm::Type *memory_ptr_type,
+           llvm::Type *vnode_type)
+        : Parameter(vnode_type, true),
+          memory_ref_ptr(memory_ref_ptr),
           index(index),
           intrinsics(intrinsics),
           memory_ptr_type(memory_ptr_type) {}
 
-    static ParamPtr CreateMemory(llvm::Value *memory_ref_ptr,
-                                 llvm::Value *index,
-                                 const IntrinsicTable *intrinsics,
-                                 llvm::Type *memory_ptr_type) {
+    static ParamPtr
+    CreateMemory(llvm::Value *memory_ref_ptr, llvm::Value *index,
+                 const IntrinsicTable *intrinsics, llvm::Type *memory_ptr_type,
+                 llvm::Type *vnode_type) {
       return std::make_shared<Memory>(memory_ref_ptr, index, intrinsics,
-                                      memory_ptr_type);
+                                      memory_ptr_type, vnode_type);
     }
 
    private:
@@ -254,8 +290,8 @@ class SleighLifter::PcodeToLLVMEmitIntoBlock {
     const IntrinsicTable *intrinsics;
     llvm::Type *memory_ptr_type;
 
-    std::optional<llvm::Value *> LiftAsInParam(llvm::IRBuilder<> &bldr,
-                                               llvm::Type *ty) override {
+    std::optional<llvm::Value *>
+    LiftAsInParamNoConvert(llvm::IRBuilder<> &bldr, llvm::Type *ty) override {
       auto mem = bldr.CreateLoad(this->memory_ptr_type, this->memory_ref_ptr);
       auto res = remill::LoadFromMemory(
           *this->intrinsics, bldr.GetInsertBlock(), ty, mem, this->index);
@@ -286,8 +322,8 @@ class SleighLifter::PcodeToLLVMEmitIntoBlock {
     llvm::Value *cst;
 
    public:
-    std::optional<llvm::Value *> LiftAsInParam(llvm::IRBuilder<> &bldr,
-                                               llvm::Type *ty) override {
+    std::optional<llvm::Value *>
+    LiftAsInParamNoConvert(llvm::IRBuilder<> &bldr, llvm::Type *ty) override {
       if (ty != cst->getType()) {
         return std::nullopt;
       }
@@ -299,7 +335,9 @@ class SleighLifter::PcodeToLLVMEmitIntoBlock {
       return LiftStatus::kLiftedUnsupportedInstruction;
     }
 
-    ConstantValue(llvm::Value *cst) : cst(cst) {}
+    ConstantValue(llvm::Value *cst)
+        : Parameter(cst->getType(), false),
+          cst(cst) {}
 
     static ParamPtr CreatConstant(llvm::Value *cst) {
       return std::make_shared<ConstantValue>(cst);
@@ -411,8 +449,6 @@ class SleighLifter::PcodeToLLVMEmitIntoBlock {
   llvm::BasicBlock *entry_block;
   llvm::BasicBlock *exit_block;
 
-  size_t curr_id;
-
   const sleigh::MaybeBranchTakenVar &to_lift_btaken;
 
   std::unordered_map<size_t, llvm::BasicBlock *> start_index_to_block;
@@ -467,24 +503,25 @@ class SleighLifter::PcodeToLLVMEmitIntoBlock {
         user_op_names(user_op_names_),
         entry_block(target_block),
         exit_block(exit_block_),
-        curr_id(0),
         to_lift_btaken(to_lift_btaken_),
         context_reg_lifter(std::move(context_reg_lifter)) {}
 
 
-  ParamPtr CreateMemoryAddress(llvm::Value *offset) {
+  ParamPtr CreateMemoryAddress(llvm::Value *offset, VarnodeData vnode) {
     const auto mem_ptr_ref = this->insn_lifter_parent.LoadRegAddress(
         this->target_block, this->state_pointer, kMemoryVariableName);
     // compute pointer into memory at offset
 
 
-    return Memory::CreateMemory(mem_ptr_ref.first, offset,
-                                this->insn_lifter_parent.GetIntrinsicTable(),
-                                this->insn_lifter_parent.GetMemoryType());
+    return Memory::CreateMemory(
+        mem_ptr_ref.first, offset, this->insn_lifter_parent.GetIntrinsicTable(),
+        this->insn_lifter_parent.GetMemoryType(),
+        llvm::IntegerType::get(this->context, vnode.size * 8));
   }
 
   std::optional<ParamPtr> LiftNormalRegister(llvm::IRBuilder<> &bldr,
-                                             std::string reg_name) {
+                                             std::string reg_name,
+                                             VarnodeData target_vnode) {
     for (auto &c : reg_name) {
       c = toupper(c);
     }
@@ -500,7 +537,9 @@ class SleighLifter::PcodeToLLVMEmitIntoBlock {
       // TODO(Ian): will probably need to adjust the pointer here in certain circumstances
       auto reg_ptr = this->insn_lifter_parent.LoadRegAddress(
           bldr.GetInsertBlock(), this->state_pointer, reg_name);
-      return RegisterValue::CreateRegister(reg_ptr.first);
+      return RegisterValue::CreateRegister(
+          reg_ptr.first,
+          llvm::IntegerType::get(this->context, target_vnode.size * 8));
     } else {
       return std::nullopt;
     }
@@ -509,7 +548,7 @@ class SleighLifter::PcodeToLLVMEmitIntoBlock {
   ParamPtr LiftNormalRegisterOrCreateUnique(llvm::IRBuilder<> &bldr,
                                             std::string reg_name,
                                             VarnodeData target_vnode) {
-    if (auto res = this->LiftNormalRegister(bldr, reg_name)) {
+    if (auto res = this->LiftNormalRegister(bldr, reg_name, target_vnode)) {
       return *res;
     }
 
@@ -529,7 +568,8 @@ class SleighLifter::PcodeToLLVMEmitIntoBlock {
     DLOG(ERROR) << "Creating unique for unknown register: " << ss.str() << " "
                 << reg_ptr->getName().str();
 
-    return RegisterValue::CreateRegister(reg_ptr);
+    return RegisterValue::CreateRegister(
+        reg_ptr, llvm::IntegerType::get(this->context, 8 * target_vnode.size));
   }
 
   //TODO(Ian): Maybe this should be a failable function that returns an unsupported insn in certain failures
@@ -545,7 +585,7 @@ class SleighLifter::PcodeToLLVMEmitIntoBlock {
       auto constant_offset = this->replacement_cont.LiftOffsetOrReplace(
           bldr, vnode, this->insn_lifter_parent.GetWordType());
 
-      return this->CreateMemoryAddress(constant_offset);
+      return this->CreateMemoryAddress(constant_offset, vnode);
     } else if (space_name == "register") {
       auto reg_name = this->insn_lifter_parent.GetEngine().getRegisterName(
           vnode.space, vnode.offset, vnode.size);
@@ -565,7 +605,8 @@ class SleighLifter::PcodeToLLVMEmitIntoBlock {
 
       auto reg_ptr =
           this->uniques.GetUniquePtr(vnode.offset, vnode.size, entry_bldr);
-      return RegisterValue::CreateRegister(reg_ptr);
+      return RegisterValue::CreateRegister(
+          reg_ptr, llvm::IntegerType::get(this->context, 8 * vnode.size));
     } else {
       LOG(FATAL) << "Unhandled memory space: " << space_name;
     }
@@ -752,8 +793,8 @@ class SleighLifter::PcodeToLLVMEmitIntoBlock {
           return this->LiftStoreIntoOutParam(
               bldr,
               bldr.CreateZExt(
-                  bldr.CreateXor(*bneg_inval,
-                                 llvm::ConstantInt::get(byte_type, 1)),
+                  bldr.CreateICmpEQ(*bneg_inval,
+                                    llvm::ConstantInt::get(byte_type, 0)),
                   byte_type),
               outvar);
         }
@@ -938,16 +979,18 @@ class SleighLifter::PcodeToLLVMEmitIntoBlock {
       return LiftStatus::kLiftedUnsupportedInstruction;
     }
 
-    bldr.CreateStore(*should_branch, GetBranchTakenRef());
+    auto i1 = llvm::IntegerType::get(this->context, 1);
+//    bldr.CreateStore(*should_branch, GetBranchTakenRef());
 
     // TODO(Ian): this should probably technically be != 0
     auto trunc_should_branch = bldr.CreateTrunc(
-        *should_branch, llvm::IntegerType::get(this->context, 1));
+        *should_branch, i1 );
     if (!isVarnodeInConstantSpace(lhs)) {
       // directs dont read the address of the variable, the offset is the jump
       // TODO(Ian): handle other address spaces
       auto jump_addr = this->replacement_cont.LiftOffsetOrReplace(
           bldr, lhs, this->insn_lifter_parent.GetWordType());
+
 
       auto orig_pc_value = this->GetNextPc(bldr);
       //CHECK(pc_reg_param.has_value());
@@ -1174,7 +1217,7 @@ class SleighLifter::PcodeToLLVMEmitIntoBlock {
         return LiftStatus::kLiftedUnsupportedInstruction;
       }
       auto out_type = llvm::IntegerType::get(this->context, out_op.size * 8);
-      auto lifted_addr = this->CreateMemoryAddress(*lifted_addr_offset);
+      auto lifted_addr = this->CreateMemoryAddress(*lifted_addr_offset, out_op);
 
       auto loaded_value = lifted_addr->LiftAsInParam(bldr, out_type);
 
@@ -1263,7 +1306,8 @@ class SleighLifter::PcodeToLLVMEmitIntoBlock {
               llvm::IntegerType::get(this->context, param2.size * 8));
 
           if (store_param.has_value()) {
-            auto lifted_addr = this->CreateMemoryAddress(*lifted_addr_offset);
+            auto lifted_addr =
+                this->CreateMemoryAddress(*lifted_addr_offset, param2);
             return lifted_addr->StoreIntoParam(bldr, *store_param);
           }
         }
@@ -1410,9 +1454,9 @@ class SleighLifter::PcodeToLLVMEmitIntoBlock {
   }
 
 
-  void LiftBtakenIfReached(llvm::IRBuilder<> &bldr, OpCode opc) {
+  void LiftBtakenIfReached(llvm::IRBuilder<> &bldr, OpCode opc, size_t index) {
 
-    if (this->to_lift_btaken && curr_id == this->to_lift_btaken->index) {
+    if (this->to_lift_btaken && index == this->to_lift_btaken->index) {
       this->UpdateStatus(this->LiftBranchTaken(bldr, *this->to_lift_btaken),
                          opc);
     }
@@ -1465,8 +1509,11 @@ class SleighLifter::PcodeToLLVMEmitIntoBlock {
     // we have a problem with block terminators where a cbranch <relative> -> fallthrough, need to either exit to the exit block
     // or transfer to a block. So really our cfg needs to tell us how to terminate a block
     // either exit (means real control flow), to block (fake control flow)
+    size_t index = 0;
     for (auto pc : blk.ops) {
+      this->LiftBtakenIfReached(bldr, pc.op, index);
       this->LiftPcodeOp(bldr, pc.op, pc.outvar, pc.vars.data(), pc.vars.size());
+      index += 1;
     }
 
     this->TerminateBlock();
@@ -1677,11 +1724,10 @@ SleighLifter::LiftIntoInternalBlockWithSleighState(
   this->decoder.InitializeSleighContext(inst.pc, *this->sleigh_context,
                                         context_values);
 
-  auto &engine = GetEngine();
-  sleigh::PcodeDecoder pcode_record(engine);
+  sleigh::PcodeDecoder pcode_record(this->GetEngine());
   sleigh_context->oneInstruction(inst.pc, pcode_record, inst.bytes);
   for (const auto &op : pcode_record.ops) {
-    DLOG(INFO) << "Pcodeop: " << DumpPcode(engine, op);
+    DLOG(INFO) << "Pcodeop: " << DumpPcode(this->GetEngine(), op);
   }
 
   DLOG(INFO) << "Secondary lift of bytes: " << llvm::toHex(inst.bytes);
@@ -1718,28 +1764,28 @@ SleighLifter::LiftIntoInternalBlockWithSleighState(
     auto cfg = sleigh::CreateCFG(pcode_record.ops);
 
 
-    SleighLifter::PcodeToLLVMEmitIntoBlock::DecodingContextConstants
-        decoding_context_lifter(this->decoder.GetContextRegisterMapping(),
-                                target_mod->getContext(), context_values,
-                                target_block);
+  SleighLifter::PcodeToLLVMEmitIntoBlock::DecodingContextConstants
+      decoding_context_lifter(this->decoder.GetContextRegisterMapping(),
+                              target_mod->getContext(), context_values,
+                              target_block);
 
-    SleighLifter::PcodeToLLVMEmitIntoBlock lifter(
-        target_block, internal_state_pointer, inst, *this,
-        this->sleigh_context->getUserOpNames(), exit_block, btaken,
-        std::move(decoding_context_lifter));
+  SleighLifter::PcodeToLLVMEmitIntoBlock lifter(
+      target_block, internal_state_pointer, inst, *this,
+      this->sleigh_context->getUserOpNames(), exit_block, btaken,
+      std::move(decoding_context_lifter));
 
 
-    for (auto blk : cfg.blocks) {
-      lifter.VisitBlock(blk.second);
-    }
-
-    // Log error if claim_eq values that were declared saw no uses
-    if (!lifter.ClaimEqualityUsed()) {
-      LOG(ERROR) << "claim_eq value not used when lifting " << inst.Serialize();
-    }
-    ir.CreateBr(lifter.GetOrCreateBlock(0));
-    result = lifter.GetStatus();
+  for (auto blk : cfg.blocks) {
+    lifter.VisitBlock(blk.second);
   }
+
+  // Log error if claim_eq values that were declared saw no uses
+  if (!lifter.ClaimEqualityUsed()) {
+    LOG(ERROR) << "claim_eq value not used when lifting " << inst.Serialize();
+  }
+
+  ir.CreateBr(lifter.GetOrCreateBlock(0));
+
 
   // Setup like an ISEL
   SleighLifter::SetISelAttributes(target_func);
@@ -1786,10 +1832,11 @@ LiftStatus SleighLifter::LiftIntoBlockWithSleighState(
       intoblock_builer.CreateLoad(this->GetWordType(), next_pc_ref);
 
 
-  intoblock_builer.CreateStore(this->decoder.LiftPcFromCurrPc(
+  intoblock_builer.CreateStore(intoblock_builer.CreateZExtOrTrunc( this->decoder.LiftPcFromCurrPc(
                                    intoblock_builer, next_pc, inst.bytes.size(),
-                                   DecodingContext(context_values)),
+                                   DecodingContext(context_values)), pc_ref_type),
                                pc_ref);
+
   intoblock_builer.CreateStore(
       intoblock_builer.CreateAdd(
           next_pc,
